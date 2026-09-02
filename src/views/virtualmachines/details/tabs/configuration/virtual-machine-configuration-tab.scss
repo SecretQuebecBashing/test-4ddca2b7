@@ -1,0 +1,27 @@
+.VirtualMachineConfigurationTab {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  &__body > &__tabs {
+    margin: var(--pf-t--global--spacer--sm);
+    width: max-content;
+    padding-right: var(--pf-t--global--spacer--3xl);
+  }
+
+  &__content {
+    width: 100%;
+  }
+
+  &__body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
+
+    h2 {
+      margin-bottom: var(--pf-t--global--spacer--md);
+    }
+  }
+}

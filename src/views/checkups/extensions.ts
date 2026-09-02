@@ -1,0 +1,75 @@
+import type { RoutePage } from '@openshift-console/dynamic-plugin-sdk';
+import type {
+  ConsolePluginBuildMetadata,
+  EncodedExtension,
+} from '@openshift-console/dynamic-plugin-sdk-webpack';
+
+export const exposedModules: ConsolePluginBuildMetadata['exposedModules'] = {
+  Checkups: './views/checkups/Checkups.tsx',
+  CheckupsSelfValidationDetailsPage:
+    './views/checkups/self-validation/details/CheckupsSelfValidationDetailsPage.tsx',
+  CheckupsSelfValidationForm:
+    './views/checkups/self-validation/components/form/CheckupsSelfValidationForm.tsx',
+  CheckupsStorageDetailsPage: './views/checkups/storage/details/CheckupsStorageDetailsPage.tsx',
+  CheckupsStorageForm: './views/checkups/storage/components/form/CheckupsStorageForm.tsx',
+};
+
+export const extensions: EncodedExtension[] = [
+  {
+    flags: {
+      required: ['KUBEVIRT_DYNAMIC'],
+    },
+    properties: {
+      component: {
+        $codeRef: 'CheckupsStorageForm',
+      },
+      path: ['/k8s/ns/:ns/checkups/storage/form'],
+    },
+    type: 'console.page/route',
+  } as EncodedExtension<RoutePage>,
+  {
+    flags: {
+      required: ['KUBEVIRT_DYNAMIC'],
+    },
+    properties: {
+      component: {
+        $codeRef: 'CheckupsStorageDetailsPage',
+      },
+      path: ['/k8s/ns/:ns/checkups/storage/:checkupName'],
+    },
+    type: 'console.page/route',
+  } as EncodedExtension<RoutePage>,
+  {
+    flags: {
+      required: ['KUBEVIRT_DYNAMIC'],
+    },
+    properties: {
+      component: {
+        $codeRef: 'CheckupsSelfValidationForm',
+      },
+      path: ['/k8s/ns/:ns/checkups/self-validation/form'],
+    },
+    type: 'console.page/route',
+  } as EncodedExtension<RoutePage>,
+  {
+    flags: {
+      required: ['KUBEVIRT_DYNAMIC'],
+    },
+    properties: {
+      component: {
+        $codeRef: 'CheckupsSelfValidationDetailsPage',
+      },
+      path: ['/k8s/ns/:ns/checkups/self-validation/:checkupName'],
+    },
+    type: 'console.page/route',
+  } as EncodedExtension<RoutePage>,
+  {
+    properties: {
+      component: {
+        $codeRef: 'Checkups',
+      },
+      path: ['/k8s/ns/:ns/checkups', '/k8s/all-namespaces/checkups'],
+    },
+    type: 'console.page/route',
+  } as EncodedExtension<RoutePage>,
+];

@@ -1,0 +1,141 @@
+/* eslint-disable */
+import React, { FC } from 'react';
+import { Link } from 'react-router';
+
+import { V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import useVMQueries from '@kubevirt-utils/hooks/useVMQueries';
+import { getNamespace } from '@kubevirt-utils/resources/shared';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { PrometheusEndpoint } from '@openshift-console/dynamic-plugin-sdk';
+import {
+  Chart,
+  ChartArea,
+  ChartAxis,
+  ChartGroup,
+  ChartVoronoiContainer,
+} from '@patternfly/react-charts/victory';
+import chart_color_blue_300 from '@patternfly/react-tokens/dist/esm/chart_color_blue_300';
+import chart_color_blue_400 from '@patternfly/react-tokens/dist/esm/chart_color_blue_400';
+import { useFleetPrometheusPoll } from '@stolostron/multicluster-sdk';
+import useDuration from '@virtualmachines/details/tabs/metrics/hooks/useDuration';
+
+import { tickLabels } from '../ChartLabels/styleOverrides';
+import ComponentReady from '../ComponentReady/ComponentReady';
+import useResponsiveCharts from '../hooks/useResponsiveCharts';
+import useStableYMax from '../hooks/useStableYMax';
+import {
+  addTimestampToTooltip,
+  findMaxYValue,
+  formatNetworkThresholdTooltipData,
+  getChartYRange,
+  MILLISECONDS_MULTIPLIER,
+  queriesToLink,
+  tickFormat,
+  TICKS_COUNT,
+} from '../utils/utils';
+
+type NetworkThresholdChartProps = {
+  vmi: V1VirtualMachineInstance;
+};
+
+const NetworkThresholdChart: FC<NetworkThresholdChartProps> = ({ vmi }) => {
+  const { currentTime, duration, timespan } = useDuration();
+
+  const queries = useVMQueries(vmi);
+  const { height, ref, width } = useResponsiveCharts();
+
+  const prometheusProps = {
+    cluster: getCluster(vmi),
+    endpoint: PrometheusEndpoint?.QUERY_RANGE,
+    endTime: currentTime,
+    namespace: getNamespace(vmi),
+    timespan,
+  };
+
+  const [networkIn, networkInLoaded, networkInError] = useFleetPrometheusPoll({
+    ...prometheusProps,
+    query: queries?.NETWORK_IN_USAGE,
+  });
+
+  const [networkOut, networkOutLoaded, networkOutError] = useFleetPrometheusPoll({
+    ...prometheusProps,
+    query: queries?.NETWORK_OUT_USAGE,
+  });
+
+  const isLoading = !networkInLoaded || !networkOutLoaded;
+
+  const error = networkInError || networkOutError;
+
+  const networkInData = networkIn?.data?.result?.[0]?.values;
+  const networkOutData = networkOut?.data?.result?.[0]?.values;
+  const chartDataIn = networkInData?.map(([x, y]) => {
+    return { name: 'Network In', x: new Date(x * MILLISECONDS_MULTIPLIER), y: Number(y) };
+  });
+
+  const chartDataOut = networkOutData?.map(([x, y]) => {
+    return { name: 'Network Out', x: new Date(x * MILLISECONDS_MULTIPLIER), y: Number(y) };
+  });
+
+  const isReady = !isEmpty(chartDataOut) || !isEmpty(chartDataIn);
+  const yMax = useStableYMax(
+    findMaxYValue([...(chartDataIn || []), ...(chartDataOut || [])]),
+    `${vmi?.metadata?.uid}_${duration}`,
+  );
+  const yRange = getChartYRange(yMax);
+
+  return (
+    <ComponentReady error={error} isLoading={isLoading} isReady={isReady}>
+      <div className="util-threshold-chart" ref={ref}>
+        <Link to={queriesToLink([queries?.NETWORK_IN_USAGE, queries?.NETWORK_OUT_USAGE])}>
+          <Chart
+            containerComponent={
+              <ChartVoronoiContainer
+                constrainToVisibleArea
+                labels={addTimestampToTooltip(formatNetworkThresholdTooltipData)}
+              />
+            }
+            domain={{
+              x: [currentTime - timespan, currentTime],
+              ...(yRange && { y: yRange }),
+            }}
+            height={height}
+            padding={35}
+            scale={{ x: 'time', y: 'linear' }}
+            width={width}
+          >
+            <ChartAxis
+              style={{
+                tickLabels: { padding: 2, ...tickLabels },
+                ticks: { stroke: 'transparent' },
+              }}
+              axisComponent={<></>}
+              tickCount={TICKS_COUNT}
+              tickFormat={tickFormat(duration, currentTime)}
+            />
+            <ChartGroup>
+              <ChartArea
+                style={{
+                  data: {
+                    stroke: chart_color_blue_300.value,
+                  },
+                }}
+                data={chartDataOut}
+              />
+              <ChartArea
+                style={{
+                  data: {
+                    stroke: chart_color_blue_400.value,
+                  },
+                }}
+                data={chartDataIn}
+              />
+            </ChartGroup>
+          </Chart>
+        </Link>
+      </div>
+    </ComponentReady>
+  );
+};
+
+export default NetworkThresholdChart;

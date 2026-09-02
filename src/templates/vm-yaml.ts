@@ -1,0 +1,107 @@
+import { VirtualMachineModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { isUpstream } from '@kubevirt-utils/utils/utils';
+import { generateCloudInitPassword } from '@virtualmachines/wizard/steps/InstanceTypesSteps/hooks/useGenerateVM/utils/generateVM';
+
+const osType = isUpstream ? 'fedora' : 'rhel10';
+const image = isUpstream
+  ? 'quay.io/containerdisks/fedora'
+  : 'registry.redhat.io/rhel10/rhel-guest-image';
+
+export const defaultVMYamlTemplate = (isIPv6SingleStack = false): V1VirtualMachine => ({
+  apiVersion: `${VirtualMachineModel.apiGroup}/${VirtualMachineModel.apiVersion}`,
+  kind: VirtualMachineModel.kind,
+  metadata: {
+    annotations: {
+      description: 'VM example',
+    },
+    labels: {
+      [`os.template.kubevirt.io/${osType}`]: 'true',
+      app: 'example',
+    },
+    name: 'example',
+  },
+  spec: {
+    runStrategy: 'Halted',
+    template: {
+      metadata: {
+        annotations: {
+          'vm.kubevirt.io/flavor': 'small',
+          'vm.kubevirt.io/os': osType,
+          'vm.kubevirt.io/workload': 'server',
+        },
+        labels: {
+          'kubevirt.io/domain': 'example',
+          'kubevirt.io/size': 'small',
+        },
+      },
+      spec: {
+        domain: {
+          cpu: {
+            cores: 1,
+            sockets: 1,
+            threads: 1,
+          },
+          devices: {
+            autoattachPodInterface: false,
+            disks: [
+              {
+                disk: {
+                  bus: 'virtio',
+                },
+                name: 'rootdisk',
+              },
+              {
+                disk: {
+                  bus: 'virtio',
+                },
+                name: 'cloudinitdisk',
+              },
+            ],
+            interfaces: isIPv6SingleStack
+              ? []
+              : [
+                  {
+                    masquerade: {},
+                    model: 'virtio',
+                    name: 'default',
+                  },
+                ],
+            networkInterfaceMultiqueue: true,
+            rng: {},
+          },
+          memory: {
+            guest: '2Gi',
+          },
+        },
+        hostname: 'example',
+        networks: isIPv6SingleStack
+          ? []
+          : [
+              {
+                name: 'default',
+                pod: {},
+              },
+            ],
+        terminationGracePeriodSeconds: 180,
+        volumes: [
+          {
+            containerDisk: {
+              image,
+            },
+            name: 'rootdisk',
+          },
+          {
+            cloudInitNoCloud: {
+              userData: `#cloud-config
+user: ${osType}
+password: ${generateCloudInitPassword()}
+chpasswd: { expire: False }`,
+            },
+            name: 'cloudinitdisk',
+          },
+        ],
+      },
+    },
+  },
+});

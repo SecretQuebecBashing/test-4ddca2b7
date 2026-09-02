@@ -1,0 +1,192 @@
+/* eslint-disable */
+import React, {
+  FC,
+  FormEvent,
+  KeyboardEvent,
+  RefObject,
+  useCallback,
+  useRef,
+  useState,
+} from 'react';
+
+import { useClickOutside } from '@kubevirt-utils/hooks/useClickOutside/useClickOutside';
+import {
+  KubevirtFilter,
+  KubevirtFilterState,
+  OnSetFilters,
+} from '@kubevirt-utils/hooks/useKubevirtDataViewFilters/types';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import {
+  Button,
+  ButtonVariant,
+  Divider,
+  Flex,
+  Popper,
+  TextInputGroup,
+  TextInputGroupMain,
+  TextInputGroupUtilities,
+  Tooltip,
+} from '@patternfly/react-core';
+import { SearchIcon, TimesIcon } from '@patternfly/react-icons';
+import useCursorTracking from '@search/hooks/useCursorTracking';
+import { useSearchLanguageDropdown } from '@search/searchLanguage/hooks/useSearchLanguageDropdown/useSearchLanguageDropdown';
+import { VM_SEARCH_INPUT_ID } from '@search/utils/constants';
+
+import { useAutocompleteMode } from './SearchDropdown/hooks/useAutocompleteMode/useAutocompleteMode';
+import { useDropdownNavigation } from './SearchDropdown/hooks/useDropdownNavigation/useDropdownNavigation';
+import SearchDropdown from './SearchDropdown/SearchDropdown';
+import { DropdownType } from './SearchDropdown/types';
+import AdvancedSearchIcon from './AdvancedSearchIcon';
+import SaveSearchButton from './SaveSearchButton';
+
+type SearchTextInputProps = {
+  displayText: string;
+  filterDefinitions: KubevirtFilter[];
+  filters: KubevirtFilterState;
+  inputRef: RefObject<HTMLInputElement>;
+  isDraft: boolean;
+  isDropdownOpen: boolean;
+  onChange: (event: FormEvent<HTMLInputElement>, value: string) => void;
+  onClear: () => void;
+  onCloseDropdown: () => void;
+  onInputKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onOpenAdvancedSearch: () => void;
+  onOpenDropdown: () => void;
+  onSelectQueryText: (query: string) => void;
+  onSetFilters: OnSetFilters;
+  recentSearches: string[];
+  setDraftText: (value: string) => void;
+  trackKey: (key: string) => void;
+};
+
+const SearchTextInput: FC<SearchTextInputProps> = ({
+  displayText,
+  filterDefinitions,
+  filters,
+  inputRef,
+  isDraft,
+  isDropdownOpen,
+  onChange,
+  onClear,
+  onCloseDropdown,
+  onInputKeyDown,
+  onOpenAdvancedSearch,
+  onOpenDropdown,
+  onSelectQueryText,
+  onSetFilters,
+  recentSearches,
+  setDraftText,
+  trackKey,
+}) => {
+  const { t } = useKubevirtTranslation();
+
+  const toggleRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const [showAllExamples, setShowAllExamples] = useState(false);
+  const onToggleShowAllExamples = useCallback(() => setShowAllExamples((prev) => !prev), []);
+
+  const { handleCursorChange, setDraftTextWithCursor, tokenParts, updateCursorPosition } =
+    useCursorTracking({ displayText, inputRef, setDraftText });
+
+  const autocompleteMode = useAutocompleteMode(tokenParts.token, filterDefinitions);
+
+  const { onSelectKey, onSelectOperator, onSelectValue } = useSearchLanguageDropdown({
+    autocompleteMode,
+    filters,
+    onSetFilters,
+    setDraftTextWithCursor,
+    tokenParts,
+    trackKey,
+  });
+
+  const { focusedItemIndex, handleKeyDown, resetFocusedItem } = useDropdownNavigation({
+    autocompleteMode,
+    filterDefinitions,
+    onInputKeyDown,
+    onSelectKey,
+    onSelectOperator,
+    onSelectQueryText,
+    onSelectValue,
+    recentSearches,
+    showAllExamples,
+  });
+
+  const handleChange = useCallback(
+    (event: FormEvent<HTMLInputElement>, value: string) => {
+      handleCursorChange(event);
+      resetFocusedItem();
+      onChange(event, value);
+    },
+    [handleCursorChange, resetFocusedItem, onChange],
+  );
+
+  useClickOutside([toggleRef, menuRef], onCloseDropdown);
+
+  const searchInput = (
+    <div className="pf-v6-u-w-100" ref={toggleRef}>
+      <TextInputGroup data-test={VM_SEARCH_INPUT_ID} id={VM_SEARCH_INPUT_ID}>
+        <TextInputGroupMain
+          icon={<SearchIcon />}
+          onChange={handleChange}
+          onClick={updateCursorPosition}
+          onFocus={onOpenDropdown}
+          onKeyDown={handleKeyDown}
+          onKeyUp={updateCursorPosition}
+          placeholder={t('Search virtual machines...')}
+          ref={inputRef}
+          value={displayText}
+        />
+        <TextInputGroupUtilities>
+          <Flex gap={{ default: 'gapSm' }}>
+            {displayText && (
+              <Button
+                aria-label={t('Clear search')}
+                icon={<TimesIcon />}
+                onClick={onClear}
+                variant={ButtonVariant.plain}
+              />
+            )}
+            <Divider className="pf-v6-u-py-sm" orientation={{ default: 'vertical' }} />
+            <SaveSearchButton isDraft={isDraft} />
+            <Tooltip content={t('Advanced search')}>
+              <Button
+                onClick={() => {
+                  onCloseDropdown();
+                  onOpenAdvancedSearch();
+                }}
+                aria-label={t('Advanced search')}
+                data-test="vm-advanced-search-button"
+                icon={<AdvancedSearchIcon isLarge />}
+                variant={ButtonVariant.plain}
+              />
+            </Tooltip>
+          </Flex>
+        </TextInputGroupUtilities>
+      </TextInputGroup>
+    </div>
+  );
+
+  const dropdown = (
+    <div ref={menuRef}>
+      <SearchDropdown
+        autocompleteMode={autocompleteMode}
+        filterDefinitions={filterDefinitions}
+        focusedItemIndex={focusedItemIndex}
+        onSelectKey={onSelectKey}
+        onSelectOperator={onSelectOperator}
+        onSelectQueryText={onSelectQueryText}
+        onSelectValue={onSelectValue}
+        onToggleShowAllExamples={onToggleShowAllExamples}
+        recentSearches={recentSearches}
+        showAllExamples={showAllExamples}
+      />
+    </div>
+  );
+
+  const shouldShowDropdown = isDropdownOpen && autocompleteMode.type !== DropdownType.HIDDEN;
+
+  return <Popper isVisible={shouldShowDropdown} popper={dropdown} trigger={searchInput} />;
+};
+
+export default SearchTextInput;

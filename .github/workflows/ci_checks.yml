@@ -1,0 +1,131 @@
+name: Code Checks
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  code-checks:
+    name: Code Checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # ── actionlint ────────────────────────────────────────
+      - name: Install actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run actionlint
+        id: actionlint
+        continue-on-error: true
+        run: actionlint -color -shellcheck= -pyflakes=
+
+      # ── lint + build ──────────────────────────────────────
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      # ── Hermeto offline install verification ──────────────
+      - name: Prefetch npm dependencies with Hermeto
+        id: hermeto
+        continue-on-error: true
+        run: |
+          git checkout -- package.json package-lock.json
+          rm -rf node_modules hermeto-output
+          HERMETO_OUTPUT="${{ github.workspace }}/hermeto-output"
+          docker run --rm \
+            -v "${{ github.workspace }}:${{ github.workspace }}" \
+            -w "${{ github.workspace }}" \
+            ghcr.io/hermetoproject/hermeto:latest \
+            fetch-deps --source "${{ github.workspace }}" --output "$HERMETO_OUTPUT" npm
+          docker run --rm \
+            -v "${{ github.workspace }}:${{ github.workspace }}" \
+            -w "${{ github.workspace }}" \
+            ghcr.io/hermetoproject/hermeto:latest \
+            inject-files "$HERMETO_OUTPUT" --for-output-dir "$HERMETO_OUTPUT"
+
+      - name: Verify offline install
+        id: offline
+        continue-on-error: true
+        run: HUSKY=0 npm ci --offline --ignore-scripts --no-audit
+
+      # ── unit tests ────────────────────────────────────────
+      - name: Run unit tests
+        id: test
+        continue-on-error: true
+        run: npm run test-cov
+
+      - name: Coverage upload
+        if: always()
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      # ── workflow script checks ────────────────────────────
+      - name: Install workflow script dependencies
+        working-directory: .github/scripts
+        run: npm ci
+
+      - name: Check workflow script types
+        id: script_types
+        continue-on-error: true
+        working-directory: .github/scripts
+        run: npm run check-types
+
+      - name: Run workflow script tests
+        id: script_tests
+        continue-on-error: true
+        working-directory: .github/scripts
+        run: npm test
+
+      # ── final verdict ─────────────────────────────────────
+      - name: Check all results
+        if: always()
+        env:
+          STEP_RESULTS: >-
+            {
+              "actionlint": "${{ steps.actionlint.outcome }}",
+              "lint": "${{ steps.lint.outcome }}",
+              "build": "${{ steps.build.outcome }}",
+              "hermeto": "${{ steps.hermeto.outcome }}",
+              "offline-install": "${{ steps.offline.outcome }}",
+              "test": "${{ steps.test.outcome }}",
+              "script-types": "${{ steps.script_types.outcome }}",
+              "script-tests": "${{ steps.script_tests.outcome }}"
+            }
+        working-directory: .github/scripts
+        run: npx tsx src/shared/check-step-results.ts

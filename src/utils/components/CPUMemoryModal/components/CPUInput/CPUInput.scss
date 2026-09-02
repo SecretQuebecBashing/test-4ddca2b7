@@ -1,0 +1,11 @@
+.cpu-input {
+  margin-right: var(--pf-t--global--spacer--xl);
+
+  &__edit-topology-manually {
+    margin-top: var(--pf-t--global--spacer--xl);
+  }
+
+  &__title {
+    margin-bottom: var(--pf-t--global--spacer--md);
+  }
+}

@@ -1,0 +1,228 @@
+name: IBM Cloud Hot Cluster Auto-Teardown
+run-name: "Hot Cluster Auto-Teardown [${{ inputs.cluster_name || 'all' }}]"
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'Cluster name to check (leave default for all clusters)'
+        required: true
+        default: 'kubevirt-plugin-ci'
+        type: string
+      idle_threshold_minutes:
+        description: 'Minutes of CI inactivity before teardown (overrides per-cluster defaults)'
+        required: true
+        default: '240'
+        type: string
+      check_frequency_minutes:
+        description: 'How often to check (only affects manual runs; cron is fixed at 30 min)'
+        required: false
+        default: '30'
+        type: string
+      business_hours_only:
+        description: 'Only tear down outside business hours (Sun-Thu 8am-6pm UTC+2 Israel)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  IBM_REGION: eu-de
+  IBM_RESOURCE_GROUP: cnv-ui
+  BASE_DOMAIN: cnv-ui.com
+
+jobs:
+  discover-clusters:
+    name: Discover Clusters
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      clusters: ${{ steps.discover.outputs.clusters }}
+    steps:
+      - name: Setup IBM Cloud CLI
+        uses: IBM/actions-ibmcloud-cli@v2
+        with:
+          api_key: ${{ secrets.IC_KEY }}
+          region: ${{ env.IBM_REGION }}
+          group: ${{ env.IBM_RESOURCE_GROUP }}
+          plugins: kubernetes-service
+
+      - name: Install CIS plugin
+        run: ibmcloud plugin install cis -f 2>/dev/null || true
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: ci-scripts/hot-cluster/ts
+
+      - name: Install infra-script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Discover active clusters
+        id: discover
+        env:
+          BASE_DOMAIN: ${{ env.BASE_DOMAIN }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/discover-clusters.ts
+
+  validate-input:
+    name: Validate Input
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      cluster_matrix: ${{ steps.sanitize.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: ci-scripts/hot-cluster/ts
+
+      - name: Install infra-script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Sanitize cluster_name input
+        id: sanitize
+        env:
+          INPUT_CLUSTER_NAME: ${{ inputs.cluster_name }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/sanitize-cluster-input.ts
+
+  check-and-teardown:
+    name: 'Check & Teardown [${{ matrix.cluster_name }}]'
+    needs: [discover-clusters, validate-input]
+    if: |
+      always() && (
+        (github.event_name == 'schedule' && needs.discover-clusters.outputs.clusters != '[]') ||
+        (github.event_name == 'workflow_dispatch' && needs.validate-input.result == 'success')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        cluster_name: ${{ github.event_name == 'schedule' && fromJSON(needs.discover-clusters.outputs.clusters) || fromJSON(needs.validate-input.outputs.cluster_matrix) }}
+    env:
+      CLUSTER_NAME: ${{ matrix.cluster_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            .github/actions/setup-gh-scripts
+            ci-scripts/hot-cluster/ts
+
+      - name: Install infra-script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Determine idle threshold for this cluster
+        id: threshold
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_IDLE_THRESHOLD: ${{ inputs.idle_threshold_minutes }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/determine-idle-threshold.ts
+
+      # Admin API needs a token GITHUB_TOKEN can't provide -- mint one from the ARC GitHub App.
+      - name: Generate ARC app token for runner-busy check
+        id: arc-app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.ARC_GITHUB_APP_ID }}
+          private-key: ${{ secrets.ARC_GITHUB_APP_PRIVATE_KEY }}
+          permission-administration: read
+
+      - name: Check runner-busy status for this cluster
+        id: runner_busy
+        env:
+          GH_TOKEN: ${{ steps.arc-app-token.outputs.token }}
+          CLUSTER_NAME: ${{ matrix.cluster_name }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/check-runner-busy.ts
+
+      - name: Setup scripts
+        uses: ./.github/actions/setup-gh-scripts
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+
+      - name: Check CI jobs for this cluster
+        id: check_ci
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLUSTER_NAME: ${{ matrix.cluster_name }}
+          RUNNER_BUSY: ${{ steps.runner_busy.outputs.busy }}
+        working-directory: .github/scripts
+        run: npx tsx src/infra/auto-teardown-check-ci.ts
+
+      - name: Check business hours
+        id: check_hours
+        if: steps.check_ci.outputs.active_jobs == 'false'
+        env:
+          BUSINESS_HOURS_ONLY: ${{ inputs.business_hours_only || 'false' }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/check-business-hours.ts
+
+      - name: Setup IBM Cloud CLI
+        uses: IBM/actions-ibmcloud-cli@v2
+        if: steps.check_ci.outputs.active_jobs == 'false' && steps.check_hours.outputs.skip != 'true'
+        with:
+          api_key: ${{ secrets.IC_KEY }}
+          region: ${{ env.IBM_REGION }}
+          group: ${{ env.IBM_RESOURCE_GROUP }}
+          plugins: kubernetes-service
+
+      - name: Check idle threshold
+        id: check_idle
+        if: steps.check_ci.outputs.active_jobs == 'false' && steps.check_hours.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLUSTER_NAME: ${{ matrix.cluster_name }}
+          LAST_RUN_TIME: ${{ steps.check_ci.outputs.last_run_time }}
+          IDLE_THRESHOLD_MINUTES: ${{ steps.threshold.outputs.minutes }}
+        working-directory: .github/scripts
+        run: npx tsx src/infra/auto-teardown-check-idle.ts
+
+      - name: Check if cluster exists
+        id: check_cluster
+        if: steps.check_idle.outputs.recent_activity == 'false'
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/check-cluster-exists.ts
+
+      - name: Trigger teardown
+        if: steps.check_idle.outputs.recent_activity == 'false' && steps.check_cluster.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLUSTER_NAME: ${{ matrix.cluster_name }}
+          INFRA_TYPE: ${{ steps.check_cluster.outputs.infra_type }}
+        working-directory: .github/scripts
+        run: npx tsx src/infra/auto-teardown-dispatch.ts
+
+      - name: Summary
+        if: always()
+        env:
+          CLUSTER_EXISTS: ${{ steps.check_cluster.outputs.exists }}
+          WORKFLOW_ACTIVE_JOBS: ${{ steps.check_ci.outputs.active_jobs }}
+          WORKFLOW_LAST_RUN_TIME: ${{ steps.check_ci.outputs.last_run_time }}
+          IDLE_RECENT_ACTIVITY: ${{ steps.check_idle.outputs.recent_activity }}
+          IDLE_REASON: ${{ steps.check_idle.outputs.reason }}
+          BUSINESS_HOURS_SKIP: ${{ steps.check_hours.outputs.skip }}
+          IDLE_THRESHOLD_MINUTES: ${{ steps.threshold.outputs.minutes }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/write-auto-teardown-summary.ts

@@ -1,0 +1,49 @@
+import React, { FC } from 'react';
+
+import { V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import CPUThresholdChart from '@kubevirt-utils/components/Charts/CPUUtil/CPUThresholdChart';
+import MemoryThresholdChart from '@kubevirt-utils/components/Charts/MemoryUtil/MemoryThresholdChart';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { Card, CardBody, CardTitle, Grid, GridItem } from '@patternfly/react-core';
+
+import NoDataMetricsCard from '../components/NoDataMetricsCard';
+
+type UtilizationChartsProps = {
+  prometheusUnavailable?: boolean;
+  vmi: V1VirtualMachineInstance;
+};
+
+const UtilizationCharts: FC<UtilizationChartsProps> = ({ prometheusUnavailable, vmi }) => {
+  const { t } = useKubevirtTranslation();
+
+  return (
+    <Grid hasGutter>
+      <GridItem span={6}>
+        {prometheusUnavailable ? (
+          <NoDataMetricsCard title={t('Memory')} />
+        ) : (
+          <Card>
+            <CardTitle>{t('Memory')}</CardTitle>
+            <CardBody>
+              <MemoryThresholdChart vmi={vmi} />
+            </CardBody>
+          </Card>
+        )}
+      </GridItem>
+      <GridItem span={6}>
+        {prometheusUnavailable ? (
+          <NoDataMetricsCard title={t('CPU')} />
+        ) : (
+          <Card>
+            <CardTitle>{t('CPU')}</CardTitle>
+            <CardBody>
+              <CPUThresholdChart vmi={vmi} />
+            </CardBody>
+          </Card>
+        )}
+      </GridItem>
+    </Grid>
+  );
+};
+
+export default UtilizationCharts;

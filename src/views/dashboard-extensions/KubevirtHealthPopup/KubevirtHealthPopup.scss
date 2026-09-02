@@ -1,0 +1,32 @@
+.kv-health-popup {
+  &__description {
+    color: var(--pf-t--global--text--color--subtle);
+    margin-bottom: var(--pf-t--global--spacer--md);
+  }
+
+  &__title {
+    font-weight: var(--pf-t--global--font--weight--heading--bold);
+    margin-bottom: var(--pf-t--global--spacer--sm);
+  }
+
+  &__alerts-count {
+    margin-bottom: var(--pf-t--global--spacer--md);
+
+    &--icon {
+      margin-right: var(--pf-t--global--spacer--sm);
+    }
+  }
+
+  &__empty-state--no-alerts {
+    padding-top: 16px;
+  }
+
+  &__divider {
+    margin-bottom: var(--pf-t--global--spacer--lg);
+  }
+
+  &__chart {
+    height: 150px;
+    width: 150px;
+  }
+}

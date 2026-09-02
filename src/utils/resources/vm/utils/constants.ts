@@ -1,0 +1,75 @@
+import { V1Interface, V1Network } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+
+export const NO_DATA_DASH = '—';
+
+export const SECONDS_TO_MILLISECONDS_MULTIPLIER = 1000;
+
+export const PATHS_TO_HIGHLIGHT = {
+  DEFAULT: ['spec.template.spec.domain.devices.disks', 'spec.template.spec.volumes'],
+  DETAILS_TAB: [
+    'spec.template.metadata.annotations',
+    'spec.template.metadata.labels',
+    'spec.template.spec.domain.cpu',
+    'spec.template.spec.domain.memory.guest',
+    'metadata.labels',
+    'metadata.annotations',
+  ],
+  DISKS_TAB: ['spec.template.spec.domain.devices.disks', 'spec.template.spec.volumes'],
+  ENV_TAB: ['spec.template.spec.domain.devices.disks', 'spec.template.spec.volumes'],
+  NETWORK_TAB: ['spec.template.spec.networks', 'spec.template.spec.domain.devices.interfaces'],
+  SCHEDULING_TAB: [
+    'spec.template.spec.affinity',
+    'spec.template.spec.tolerations',
+    'spec.template.spec.nodeSelector',
+    'spec.template.metadata.annotations',
+    'spec.runStrategy',
+  ],
+  SCRIPTS_TAB: ['spec.template.spec.volumes', 'spec.template.spec.accessCredentials'],
+};
+
+export const MIGRATION__PROMETHEUS_DELAY = 15 * SECONDS_TO_MILLISECONDS_MULTIPLIER;
+
+export const DEFAULT_NETWORK_INTERFACE: V1Interface = { masquerade: {}, name: 'default' };
+
+export const DEFAULT_NETWORK: V1Network = { name: 'default', pod: {} };
+
+export const UDN_BINDING_NAME = 'l2bridge';
+export const PASST_BINDING_NAME = 'passt';
+export const PASST_ANNOTATION = 'hco.kubevirt.io/deployPasstNetworkBinding';
+export const PASS_IP_STACK_MIGRATION_GATE = 'PassIPStackMigration';
+export const BRIDGE = 'bridge';
+export const MASQUERADE = 'masquerade';
+export const SRIOV = 'sriov';
+
+// NAD config types
+export const NAD_TYPE_OVN_K8S_CNI_OVERLAY = 'ovn-k8s-cni-overlay';
+export const NAD_TYPE_CNV_BRIDGE = 'cnv-bridge';
+
+export const POD_NETWORK = 'POD_NETWORK';
+
+export const RUNSTRATEGY_ALWAYS = 'Always';
+export const RUNSTRATEGY_HALTED = 'Halted';
+export const RUNSTRATEGY_MANUAL = 'Manual';
+export const RUNSTRATEGY_RERUNONFAILURE = 'RerunOnFailure';
+
+export type RunStrategy =
+  | typeof RUNSTRATEGY_ALWAYS
+  | typeof RUNSTRATEGY_HALTED
+  | typeof RUNSTRATEGY_MANUAL
+  | typeof RUNSTRATEGY_RERUNONFAILURE;
+
+export const getDefaultRunningStrategy = (): RunStrategy => RUNSTRATEGY_RERUNONFAILURE;
+
+export enum UPDATE_STRATEGIES {
+  Migration = 'Migration',
+}
+
+export enum VirtualMachineStatusConditionTypes {
+  AgentConnected = 'AgentConnected',
+  DataVolumesReady = 'DataVolumesReady',
+  LiveMigratable = 'LiveMigratable',
+  MigrationRequired = 'MigrationRequired',
+  Ready = 'Ready',
+  RestartRequired = 'RestartRequired',
+  StorageLiveMigratable = 'StorageLiveMigratable',
+}

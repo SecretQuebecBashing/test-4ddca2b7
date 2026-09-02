@@ -1,0 +1,30 @@
+.VirtualMachinesOverviewTabUtilization--main {
+  .pf-v6-c-card__body {
+    padding-left: var(--pf-t--global--spacer--sm);
+  }
+
+  .pf-v6-c-card__title {
+    padding-top: var(--pf-t--global--spacer--md);
+    padding-bottom: var(--pf-t--global--spacer--sm);
+  }
+
+  .util {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+
+    .util-chart {
+      margin-top: auto;
+
+      .pf-v6-c-chart {
+        max-height: 260px;
+        max-width: 260px;
+      }
+    }
+  }
+
+  .util-threshold-chart {
+    height: 120px;
+    margin-top: -1.5rem;
+  }
+}

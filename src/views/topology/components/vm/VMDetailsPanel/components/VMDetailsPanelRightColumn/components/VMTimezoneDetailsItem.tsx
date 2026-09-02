@@ -1,0 +1,28 @@
+import React, { FC } from 'react';
+
+import { V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { NO_DATA_DASH } from '@kubevirt-utils/resources/vm/utils/constants';
+import { useGuestOS } from '@kubevirt-utils/resources/vmi';
+
+import '../../../TopologyVMDetailsPanel.scss';
+
+type VMTimezoneDetailsItemProps = {
+  vmi: V1VirtualMachineInstance;
+};
+
+const VMTimezoneDetailsItem: FC<VMTimezoneDetailsItemProps> = ({ vmi }) => {
+  const { t } = useKubevirtTranslation();
+  const [guestAgentData] = useGuestOS(vmi);
+
+  return (
+    <DescriptionItem
+      className="topology-vm-details-panel__item"
+      descriptionData={guestAgentData?.timezone?.split(',')[0] || NO_DATA_DASH}
+      descriptionHeader={t('Time zone')}
+    />
+  );
+};
+
+export default VMTimezoneDetailsItem;

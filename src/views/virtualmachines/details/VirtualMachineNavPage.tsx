@@ -1,0 +1,99 @@
+import React, { FC, useMemo } from 'react';
+import { useParams } from 'react-router';
+
+import { V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { tourGuideVM } from '@kubevirt-utils/components/GuidedTour/utils/constants';
+import { runningTourSignal } from '@kubevirt-utils/components/GuidedTour/utils/guidedTourSignals';
+import HorizontalNavbar from '@kubevirt-utils/components/HorizontalNavbar/HorizontalNavbar';
+import { SidebarEditorProvider } from '@kubevirt-utils/components/SidebarEditor/SidebarEditorContext';
+import { getResourceDetailsTitle } from '@kubevirt-utils/constants/page-constants';
+import { TELEMETRY_RESOURCE_TYPE } from '@kubevirt-utils/extensions/telemetry/utils/property-constants';
+import { VirtualMachineModelGroupVersionKind } from '@kubevirt-utils/models';
+import { getName } from '@kubevirt-utils/resources/shared';
+import useInstanceTypeExpandSpec from '@kubevirt-utils/resources/vm/hooks/useInstanceTypeExpandSpec';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import useK8sWatchData from '@multicluster/hooks/useK8sWatchData';
+import { getVMURL } from '@multicluster/urls';
+import { DocumentTitle } from '@openshift-console/dynamic-plugin-sdk';
+import { useSignals } from '@preact/signals-react/runtime';
+
+import { useVirtualMachineTabs } from './hooks/useVirtualMachineTabs';
+import useVMErrorTelemetry from './hooks/useVMErrorTelemetry';
+import VirtualMachineNavPageTitle from './VirtualMachineNavPageTitle';
+
+import './virtual-machine-page.scss';
+
+const VirtualMachineNavPage: FC = () => {
+  useSignals();
+  const {
+    cluster,
+    name,
+    ns: namespace,
+  } = useParams<{
+    cluster?: string;
+    name: string;
+    ns: string;
+  }>();
+
+  const [vm, isLoaded, loadError] = useK8sWatchData<V1VirtualMachine>(
+    runningTourSignal.value
+      ? null
+      : {
+          cluster,
+          groupVersionKind: VirtualMachineModelGroupVersionKind,
+          name,
+          namespace,
+        },
+  );
+
+  const vmToShow = useMemo(() => (runningTourSignal.value ? tourGuideVM : vm), [vm]);
+
+  useVMErrorTelemetry(vmToShow);
+
+  const [instanceTypeExpandedSpec, expandedSpecLoading, expandedSpecError] =
+    useInstanceTypeExpandSpec(vmToShow);
+
+  const pages = useVirtualMachineTabs(vmToShow);
+
+  return useMemo(
+    () => (
+      <SidebarEditorProvider telemetryResourceType={TELEMETRY_RESOURCE_TYPE.VM}>
+        <div className="VirtualMachineNavPage">
+          <DocumentTitle>
+            {getResourceDetailsTitle(getName(vmToShow) || name, 'VirtualMachine')}
+          </DocumentTitle>
+
+          <VirtualMachineNavPageTitle
+            instanceTypeExpandedSpec={instanceTypeExpandedSpec}
+            isLoaded={isLoaded || !isEmpty(loadError)}
+            vm={vmToShow}
+          />
+          <div className="VirtualMachineNavPage--tabs__main">
+            <HorizontalNavbar
+              basePath={getVMURL(cluster, namespace, name)}
+              error={loadError || expandedSpecError}
+              instanceTypeExpandedSpec={instanceTypeExpandedSpec}
+              loaded={isLoaded && !expandedSpecLoading}
+              pages={pages}
+              vm={vmToShow}
+            />
+          </div>
+        </div>
+      </SidebarEditorProvider>
+    ),
+    [
+      cluster,
+      expandedSpecError,
+      expandedSpecLoading,
+      instanceTypeExpandedSpec,
+      isLoaded,
+      loadError,
+      name,
+      namespace,
+      pages,
+      vmToShow,
+    ],
+  );
+};
+
+export default VirtualMachineNavPage;

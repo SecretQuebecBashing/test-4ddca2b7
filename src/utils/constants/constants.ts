@@ -1,0 +1,70 @@
+export const KUBEVIRT = 'kubevirt';
+
+export const DEFAULT_NAMESPACE = 'default';
+export const OPENSHIFT_NAMESPACE = 'openshift';
+export const KUBEVIRT_OS_IMAGES_NS = 'kubevirt-os-images';
+export const OPENSHIFT_OS_IMAGES_NS = 'openshift-virtualization-os-images';
+
+export const OPENSHIFT_SRIOV_NETWORK_OPERATOR_NS = 'openshift-sriov-network-operator';
+export const OPENSHIFT_MULTUS_NS = 'openshift-multus';
+export const GLOBAL_NAD_NAMESPACES = [
+  DEFAULT_NAMESPACE,
+  OPENSHIFT_MULTUS_NS,
+  OPENSHIFT_SRIOV_NETWORK_OPERATOR_NS,
+];
+
+export const VENDOR_LABEL = 'instancetype.kubevirt.io/vendor';
+export const PROJECT_NAME_LABEL_KEY = 'kubernetes.io/metadata.name';
+
+export const ROOTDISK = 'rootdisk';
+export const CLOUDINITDISK = 'cloudinitdisk';
+
+export const KUBEVIRT_HYPERCONVERGED = 'kubevirt-hyperconverged';
+
+export const OPENSHIFT_CNV = 'openshift-cnv';
+export const CNV_OBSERVABILITY = 'cnv-observability';
+
+export const ENTER_KEY = 'Enter';
+export const NONE = 'none';
+export const SPACE_SYMBOL = ' ';
+export const YAML = 'yaml';
+
+export const MAX_MTU = 65536;
+
+export enum K8S_OPS {
+  ADD = 'add',
+  DELETE = 'delete',
+  PATCH = 'patch',
+  REMOVE = 'remove',
+  REPLACE = 'replace',
+}
+
+export enum PERSPECTIVES {
+  ACM = 'acm',
+  ADMIN = 'admin',
+  DEVELOPER = 'dev',
+  FLEET_VIRTUALIZATION = 'fleet-virtualization-perspective',
+  VIRTUALIZATION = 'virtualization-perspective',
+}
+
+export enum ARCHITECTURES {
+  AMD64 = 'amd64',
+  ARM64 = 'arm64',
+  S390X = 's390x',
+}
+
+export enum HTTP_METHODS {
+  DELETE = 'DELETE',
+  GET = 'GET',
+  PATCH = 'PATCH',
+  POST = 'POST',
+  PUT = 'PUT',
+}
+
+export const VIRTUALIZATION_PATHS = {
+  BASE: '/virtualization',
+  SETTINGS: 'virtualization-settings',
+} as const;
+
+export const COLON = ':';
+export const HASH = '#';

@@ -1,0 +1,95 @@
+import React, { type FC, type MouseEvent, useMemo, useState } from 'react';
+
+import {
+  type V1VirtualMachine,
+  type V1VirtualMachineInstance,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import ModalPendingChangesAlert from '@kubevirt-utils/components/PendingChanges/ModalPendingChangesAlert/ModalPendingChangesAlert';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import useHcoWorkloadArchitectures from '@kubevirt-utils/hooks/useHcoWorkloadArchitectures';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { FormGroup, SelectOption } from '@patternfly/react-core';
+
+import FormPFSelect from '../FormPFSelect/FormPFSelect';
+import { type BootMode, BootModeTitles } from './utils/constants';
+import { type BootloaderOptionValue } from './utils/types';
+import {
+  getBootloaderFromVM,
+  getBootloaderOptions,
+  getClusterOnlyArchitecture,
+  updatedVMBootMode,
+} from './utils/utils';
+
+type FirmwareBootloaderModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (updatedVM: V1VirtualMachine) => Promise<V1VirtualMachine | void>;
+  preferredBootmode?: BootMode;
+  vm: V1VirtualMachine;
+  vmi?: V1VirtualMachineInstance;
+};
+
+const FirmwareBootloaderModal: FC<FirmwareBootloaderModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  preferredBootmode,
+  vm,
+  vmi,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const [clusterWorkloadArchitectures] = useHcoWorkloadArchitectures(getCluster(vm));
+  const clusterOnlyArchitecture = getClusterOnlyArchitecture(clusterWorkloadArchitectures);
+  const [selectedFirmwareBootloader, setSelectedFirmwareBootloader] =
+    useState<BootloaderOptionValue>(() =>
+      getBootloaderFromVM(vm, preferredBootmode, clusterOnlyArchitecture),
+    );
+
+  const bootloaderOptions = useMemo(
+    () => getBootloaderOptions(vm, clusterOnlyArchitecture),
+    [vm, clusterOnlyArchitecture],
+  );
+
+  const handleChange = (
+    event: MouseEvent<HTMLSelectElement>,
+    value: BootloaderOptionValue,
+  ): void => {
+    event.preventDefault();
+    setSelectedFirmwareBootloader(value);
+  };
+
+  const updatedVirtualMachine = useMemo(
+    () => updatedVMBootMode(vm, selectedFirmwareBootloader, clusterOnlyArchitecture),
+    [vm, selectedFirmwareBootloader, clusterOnlyArchitecture],
+  );
+
+  return (
+    <TabModal
+      headerText={t('Boot mode')}
+      isOpen={isOpen}
+      obj={updatedVirtualMachine}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      shouldWrapInForm
+    >
+      {vmi && <ModalPendingChangesAlert />}
+      <FormGroup fieldId="firmware-bootloader" label={t('Boot mode')}>
+        <FormPFSelect
+          onSelect={handleChange}
+          selected={selectedFirmwareBootloader}
+          selectedLabel={t(BootModeTitles[selectedFirmwareBootloader])}
+          toggleProps={{ isFullWidth: true }}
+        >
+          {bootloaderOptions.map(({ description, title, value }) => (
+            <SelectOption description={t(description)} key={value} value={value}>
+              {t(title)}
+            </SelectOption>
+          ))}
+        </FormPFSelect>
+      </FormGroup>
+    </TabModal>
+  );
+};
+
+export default FirmwareBootloaderModal;

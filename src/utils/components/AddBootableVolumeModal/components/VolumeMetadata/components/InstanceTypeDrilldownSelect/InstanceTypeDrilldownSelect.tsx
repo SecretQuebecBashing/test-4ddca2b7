@@ -1,0 +1,129 @@
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+
+import { VirtualMachineClusterInstancetypeModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  AddBootableVolumeState,
+  SetBootableVolumeFieldType,
+} from '@kubevirt-utils/components/AddBootableVolumeModal/types';
+import HelpTextIcon from '@kubevirt-utils/components/HelpTextIcon/HelpTextIcon';
+import {
+  DEFAULT_INSTANCETYPE_KIND_LABEL,
+  DEFAULT_INSTANCETYPE_LABEL,
+} from '@kubevirt-utils/constants/instancetypes-and-preferences';
+import useInstanceTypesAndPreferences from '@kubevirt-utils/hooks/useInstanceTypesAndPreferences';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { universalComparator } from '@kubevirt-utils/utils/utils';
+import PopoverContentWithLightspeedButton from '@lightspeed/components/PopoverContentWithLightspeedButton/PopoverContentWithLightspeedButton';
+import { OLSPromptType } from '@lightspeed/utils/prompts';
+import { FormGroup, PopoverPosition } from '@patternfly/react-core';
+
+import ComposableDrilldownSelect from './components/ComposableDrilldownSelect/ComposableDrilldownSelect';
+import DrilldownMenuItem from './components/DrilldownMenuItem/DrilldownMenuItem';
+import RedHatInstanceTypeSeriesMenu from './components/RedHatInstanceTypeSeriesMenu/RedHatInstanceTypeSeriesMenu';
+import SelectInstanceTypeToggle from './components/SelectInstanceTypeToggle/SelectInstanceTypeToggle';
+import UserInstanceTypeMenu from './components/UserInstanceTypeMenu/UserInstanceTypeMenu';
+import { MENUS } from './utils/constants';
+import { getInstanceTypeMenuItems, isExistingInstanceType } from './utils/utils';
+
+type InstanceTypeMenuItemsProps = {
+  bootableVolume: AddBootableVolumeState;
+  deleteLabel: (labelKey: string) => void;
+  isDisabled?: boolean;
+  setBootableVolumeField: SetBootableVolumeFieldType;
+};
+
+export const InstanceTypeDrilldownSelect: FC<InstanceTypeMenuItemsProps> = ({
+  bootableVolume,
+  deleteLabel,
+  isDisabled,
+  setBootableVolumeField,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+
+  const { bootableVolumeCluster, bootableVolumeNamespace, labels } = bootableVolume;
+  const { allInstanceTypes } = useInstanceTypesAndPreferences(
+    bootableVolumeNamespace,
+    bootableVolumeCluster,
+  );
+  const menuItems = useMemo(() => getInstanceTypeMenuItems(allInstanceTypes), [allInstanceTypes]);
+  const sortedRedHatProvided = menuItems.redHatProvided.items.toSorted((a, b) =>
+    universalComparator(a.classDisplayNameAnnotation, b.classDisplayNameAnnotation),
+  );
+  const selectedInstanceType = labels?.[DEFAULT_INSTANCETYPE_LABEL];
+  const selectedInstanceTypeKind = labels?.[DEFAULT_INSTANCETYPE_KIND_LABEL];
+
+  const isExistingOption = useMemo(
+    () => isExistingInstanceType(allInstanceTypes, selectedInstanceType, selectedInstanceTypeKind),
+    [allInstanceTypes, selectedInstanceType, selectedInstanceTypeKind],
+  );
+
+  useEffect(() => {
+    if (!isExistingOption) {
+      deleteLabel(DEFAULT_INSTANCETYPE_LABEL);
+      deleteLabel(DEFAULT_INSTANCETYPE_KIND_LABEL);
+    }
+  }, [deleteLabel, isExistingOption]);
+
+  const onSelect = useCallback(
+    (kind: string, value: string, keepMenuOpen?: boolean) => {
+      setBootableVolumeField('labels', DEFAULT_INSTANCETYPE_KIND_LABEL)(kind);
+      setBootableVolumeField('labels', DEFAULT_INSTANCETYPE_LABEL)(value);
+      !keepMenuOpen && setIsOpen(false);
+    },
+    [setBootableVolumeField],
+  );
+
+  return (
+    <FormGroup
+      labelHelp={
+        <HelpTextIcon
+          bodyContent={(hide) => (
+            <PopoverContentWithLightspeedButton
+              content={t('The default InstanceType for this volume.')}
+              hide={hide}
+              promptType={OLSPromptType.DEFAULT_INSTANCETYPE}
+            />
+          )}
+          position={PopoverPosition.right}
+        />
+      }
+      label={t('Default InstanceType')}
+    >
+      <ComposableDrilldownSelect
+        toggleLabel={
+          <SelectInstanceTypeToggle
+            selected={selectedInstanceType}
+            selectedKind={selectedInstanceTypeKind}
+          />
+        }
+        appendTo={document.getElementById('tab-modal')}
+        direction="up"
+        id={MENUS.root}
+        isDisabled={isDisabled}
+        isOpen={isOpen}
+        scrollableMenuIDs={[MENUS.userProvided]}
+        setIsOpen={setIsOpen}
+      >
+        <DrilldownMenuItem {...menuItems.redHatProvided} label={t(menuItems.redHatProvided.label)}>
+          <RedHatInstanceTypeSeriesMenu
+            onSelect={(value, keepMenuOpen) =>
+              onSelect(VirtualMachineClusterInstancetypeModel.kind, value, keepMenuOpen)
+            }
+            selected={selectedInstanceType}
+            selectedKind={selectedInstanceTypeKind}
+            seriesList={sortedRedHatProvided}
+          />
+        </DrilldownMenuItem>
+        <DrilldownMenuItem {...menuItems.userProvided} label={t(menuItems.userProvided.label)}>
+          <UserInstanceTypeMenu
+            allInstanceTypes={allInstanceTypes}
+            onSelect={onSelect}
+            selected={selectedInstanceType}
+            selectedKind={selectedInstanceTypeKind}
+          />
+        </DrilldownMenuItem>
+      </ComposableDrilldownSelect>
+    </FormGroup>
+  );
+};

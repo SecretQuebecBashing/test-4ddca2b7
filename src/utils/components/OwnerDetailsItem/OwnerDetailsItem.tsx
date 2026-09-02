@@ -1,0 +1,62 @@
+import React, { FC } from 'react';
+import { Trans } from 'react-i18next';
+import classNames from 'classnames';
+
+import OwnerReferences from '@kubevirt-utils/components/OwnerReferences/OwnerReferences';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import PopoverContentWithLightspeedButton from '@lightspeed/components/PopoverContentWithLightspeedButton/PopoverContentWithLightspeedButton';
+import { OLSPromptType } from '@lightspeed/utils/prompts';
+import { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
+import {
+  DescriptionListDescription,
+  DescriptionListGroup,
+  DescriptionListTermHelpText,
+  DescriptionListTermHelpTextButton,
+  Popover,
+} from '@patternfly/react-core';
+
+type OwnerDetailsItemProps = {
+  className?: string;
+  obj: K8sResourceCommon;
+};
+
+const OwnerDetailsItem: FC<OwnerDetailsItemProps> = ({ className, obj }) => {
+  const { t } = useKubevirtTranslation();
+
+  return (
+    <DescriptionListGroup className={classNames('topology-resource-summary__item', className)}>
+      <DescriptionListTermHelpText>
+        <Popover
+          bodyContent={(hide) => (
+            <PopoverContentWithLightspeedButton
+              content={
+                <Trans ns="plugin__kubevirt-plugin">
+                  <div>
+                    List of objects depended by this object. If ALL objects in the list have been
+                    deleted, this object will be garbage collected. If this object is managed by a
+                    controller, then an entry in this list will point to this controller, with the
+                    controller field set to true. There cannot be more than one managing controller.
+                  </div>
+                </Trans>
+              }
+              breadcrumb={`${obj?.kind}.metadata.ownerReferences`}
+              hide={hide}
+              obj={obj}
+              promptType={OLSPromptType.OWNER}
+            />
+          )}
+          hasAutoWidth
+          headerContent={t('Owner')}
+          maxWidth="30rem"
+        >
+          <DescriptionListTermHelpTextButton>{t('Owner')}</DescriptionListTermHelpTextButton>
+        </Popover>
+      </DescriptionListTermHelpText>
+      <DescriptionListDescription>
+        <OwnerReferences obj={obj} />
+      </DescriptionListDescription>
+    </DescriptionListGroup>
+  );
+};
+
+export default OwnerDetailsItem;

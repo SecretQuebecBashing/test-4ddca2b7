@@ -1,0 +1,18 @@
+import React, { FC } from 'react';
+
+import { V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getAffinityRules } from '@kubevirt-utils/resources/vmi';
+
+type AffinityProps = {
+  vmi: V1VirtualMachineInstance;
+};
+
+const Affinity: FC<AffinityProps> = ({ vmi }) => {
+  const { t } = useKubevirtTranslation();
+  const affinity = vmi?.spec?.affinity;
+
+  return <>{t('{{rules}} Affinity rules', { rules: getAffinityRules(affinity)?.length ?? 0 })}</>;
+};
+
+export default Affinity;

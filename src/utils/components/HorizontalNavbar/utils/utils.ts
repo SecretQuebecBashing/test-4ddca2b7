@@ -1,0 +1,35 @@
+import { ComponentType, PropsWithChildren } from 'react';
+
+import { NavPage } from '@openshift-console/dynamic-plugin-sdk';
+import { NavPageComponentProps } from '@virtualmachines/details/utils/types';
+
+export const trimLastHistoryPath = (currentPathname: string, paths: string[]): string => {
+  let relativeUrl: string;
+  for (const path of paths) {
+    if (currentPathname.endsWith('/' + path)) {
+      if (path !== '') {
+        relativeUrl = currentPathname.slice(0, currentPathname.length - path.length);
+      }
+      if (path === '') {
+        relativeUrl = currentPathname;
+      }
+    }
+  }
+  if (!relativeUrl) relativeUrl = currentPathname + '/';
+
+  return relativeUrl;
+};
+
+export type TabBadge = {
+  color: 'red' | 'yellow';
+  count: number;
+};
+
+export const TAB_BADGE_COLOR_RED: TabBadge['color'] = 'red';
+export const TAB_BADGE_COLOR_YELLOW: TabBadge['color'] = 'yellow';
+
+export type NavPageKubevirt = Omit<NavPage, 'component'> & {
+  badges?: TabBadge[];
+  component: ComponentType<PropsWithChildren<NavPageComponentProps>>;
+  isHidden?: boolean;
+};

@@ -1,0 +1,93 @@
+import { useMemo } from 'react';
+
+import { HyperConvergedV1Beta1ModelGroupVersionKind as HyperConvergedModelGroupVersionKind } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { type V1LabelSelector } from '@kubevirt-ui-ext/kubevirt-api/containerized-data-importer';
+import { type V1MigrationConfiguration } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { type CalculationMethod } from '@kubevirt-utils/resources/quotas/types';
+import { operatorNamespaceSignal } from '@kubevirt-utils/store/operatorNamespace';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import useK8sWatchData from '@multicluster/hooks/useK8sWatchData';
+import { type K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
+
+import useDeepCompareMemoize from './useDeepCompareMemoize/useDeepCompareMemoize';
+
+export type HyperConverged = K8sResourceCommon & {
+  spec: {
+    applicationAwareConfig?: {
+      allowApplicationAwareClusterResourceQuota?: boolean;
+      vmiCalcConfigName?: CalculationMethod;
+    };
+    commonBootImageNamespace?: string;
+    commonTemplatesNamespace?: string;
+    dataImportCronTemplates: K8sResourceCommon[];
+    enableApplicationAwareQuota?: boolean;
+    enableCommonBootImageImport?: boolean;
+    evictionStrategy?: string;
+    featureGates: {
+      autoResourceLimits?: boolean;
+      declarativeHotplugVolumes?: boolean;
+      deployKubeSecondaryDNS?: boolean;
+      deployTektonTaskResources?: boolean;
+      disableMDevConfiguration?: boolean;
+      enableCommonBootImageImport?: boolean;
+      enableMultiArchBootImageImport?: boolean;
+      nonRoot?: boolean;
+      persistentReservation?: boolean;
+      root?: boolean;
+      withHostPassthroughCPU?: boolean;
+    };
+    higherWorkloadDensity: { memoryOvercommitPercentage: number };
+    ksmConfiguration: { nodeLabelSelector?: Record<string, never> };
+    liveMigrationConfig: V1MigrationConfiguration;
+    resourceRequirements: {
+      autoCPULimitNamespaceLabelSelector: V1LabelSelector;
+    };
+    roleAggregationStrategy?: string;
+    virtualMachineOptions: { disableSerialConsoleLog: string };
+  };
+  status: {
+    dataImportCronTemplates: K8sResourceCommon[];
+    nodeInfo: {
+      workloadsArchitectures: string[];
+    };
+  };
+};
+
+const getHyperConvergedObject = (hyperConverged): HyperConverged => {
+  if (isEmpty(hyperConverged)) return null;
+  if (hyperConverged?.items) return hyperConverged?.items?.[0];
+  if (Array.isArray(hyperConverged)) return hyperConverged?.[0];
+  return hyperConverged;
+};
+
+type UseHyperConvergeConfigurationType = (
+  cluster?: string,
+) => [hyperConvergeConfig: HyperConverged, loaded: boolean, error: Error | undefined];
+
+const useHyperConvergeConfiguration: UseHyperConvergeConfigurationType = (cluster) => {
+  const operatorNamespace = operatorNamespaceSignal.value;
+
+  const [hyperConvergeData, hyperConvergeDataLoaded, hyperConvergeDataError] = useK8sWatchData<
+    HyperConverged[]
+  >(
+    operatorNamespace && {
+      cluster,
+      groupVersionKind: HyperConvergedModelGroupVersionKind,
+      isList: true,
+      namespace: operatorNamespace,
+    },
+  );
+
+  const hcoLoaded = hyperConvergeDataLoaded && !isEmpty(operatorNamespace);
+
+  const hyperConverge = useMemo(
+    () => getHyperConvergedObject(hyperConvergeData),
+    [hyperConvergeData],
+  );
+
+  const memoizedHyperconvergedConfig = useDeepCompareMemoize(hyperConverge);
+
+  return [memoizedHyperconvergedConfig, hcoLoaded, hyperConvergeDataError];
+};
+
+export default useHyperConvergeConfiguration;

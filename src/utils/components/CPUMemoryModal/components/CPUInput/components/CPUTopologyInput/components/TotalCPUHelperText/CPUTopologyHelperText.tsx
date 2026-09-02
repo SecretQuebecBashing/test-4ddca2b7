@@ -1,0 +1,33 @@
+import React, { type FC } from 'react';
+
+import { type V1CPU } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import HelpTextIcon from '@kubevirt-utils/components/HelpTextIcon/HelpTextIcon';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { PopoverPosition } from '@patternfly/react-core';
+
+import './CPUTopologyHelperText.scss';
+
+type CPUTopologyHelperTextProps = {
+  cpu: V1CPU;
+};
+
+const CPUTopologyHelperText: FC<CPUTopologyHelperTextProps> = ({ cpu }) => {
+  const { t } = useKubevirtTranslation();
+  const { cores, sockets, threads } = cpu ?? {};
+
+  const totalCPU = (cores ?? 1) * (sockets ?? 1) * (threads ?? 1);
+
+  return (
+    <div className="cpu-topology-helper-text">
+      {t('Total vCPU is {{totalCPU}}', { totalCPU: totalCPU })}
+      <HelpTextIcon
+        bodyContent={t('CPUs = sockets x threads x cores.')}
+        hasAutoWidth
+        helpIconClassName="pf-v6-u-ml-sm"
+        position={PopoverPosition.right}
+      />
+    </div>
+  );
+};
+
+export default CPUTopologyHelperText;

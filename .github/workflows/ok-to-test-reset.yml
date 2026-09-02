@@ -1,0 +1,41 @@
+name: Reset ok-to-test on push
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  remove-label:
+    name: Remove ok-to-test label
+    if: contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+    runs-on: ubuntu-latest
+    steps:
+      # Label writes need the bot App (not GITHUB_TOKEN) -- same reason as
+      # hold-e2e.yml / needs-rebase.yml. See ci-scripts/README.md.
+      - name: Generate bot token
+        id: bot-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+          permission-issues: write
+
+      - name: Setup scripts
+        uses: ./.github/actions/setup-gh-scripts
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Remove ok-to-test label
+        env:
+          BOT_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        working-directory: .github/scripts
+        run: npx tsx src/commands/ok-to-test-reset.ts

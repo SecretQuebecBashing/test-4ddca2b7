@@ -1,0 +1,23 @@
+import {
+  V1KubeVirtConfiguration,
+  V1PermittedHostDevices,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import useKubevirtHyperconvergeConfiguration from '@kubevirt-utils/hooks/useKubevirtHyperconvergeConfiguration';
+import { getHyperconvergedConfiguration } from '@kubevirt-utils/resources/hyperconverged/selectors';
+
+type UseHCPermittedHostDevicesType = () => {
+  hcError: Error;
+  hcLoaded: boolean;
+  permittedHostDevices: V1PermittedHostDevices;
+};
+
+const useHCPermittedHostDevices: UseHCPermittedHostDevicesType = () => {
+  const { hcConfig, hcError, hcLoaded } = useKubevirtHyperconvergeConfiguration();
+
+  const { permittedHostDevices }: V1KubeVirtConfiguration =
+    getHyperconvergedConfiguration(hcConfig) || {};
+
+  return { hcError, hcLoaded, permittedHostDevices };
+};
+
+export default useHCPermittedHostDevices;

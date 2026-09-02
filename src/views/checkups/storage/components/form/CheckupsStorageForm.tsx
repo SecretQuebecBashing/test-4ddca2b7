@@ -1,0 +1,137 @@
+import React, { type FC, useEffect, useMemo, useRef, useState } from 'react';
+import CheckupImageField from 'src/views/checkups/components/CheckupImageField';
+
+import { type IoK8sApiStorageV1StorageClass } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { getDefaultStorageClass } from '@kubevirt-utils/components/DiskModal/components/StorageClassAndPreallocation/utils/helpers';
+import HelpTextIcon from '@kubevirt-utils/components/HelpTextIcon/HelpTextIcon';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import useRelatedImage from '@kubevirt-utils/hooks/useRelatedImage';
+import { modelToGroupVersionKind, StorageClassModel } from '@kubevirt-utils/models';
+import { generatePrettyName, isEmpty } from '@kubevirt-utils/utils/utils';
+import useClusterParam from '@multicluster/hooks/useClusterParam';
+import useK8sWatchData from '@multicluster/hooks/useK8sWatchData';
+import {
+  Form,
+  FormGroup,
+  FormSection,
+  Grid,
+  GridItem,
+  PopoverPosition,
+  TextInput,
+} from '@patternfly/react-core';
+
+import { storageCheckupImageSettings } from '../../utils/const';
+import AdvancedSettings, { type StorageCheckupAdvancedSettings } from './AdvancedSettings';
+import CheckupsStorageFormActions from './CheckupsStorageFormActions';
+
+import './checkups-storage-form.scss';
+
+const CheckupsStorageForm: FC = () => {
+  const { t } = useKubevirtTranslation();
+  const cluster = useClusterParam();
+  const [name, setName] = useState<string>(() => generatePrettyName('kubevirt-storage-checkup'));
+  const [timeOut, setTimeOut] = useState<string>('10');
+  const [checkupImage, checkupImageLoaded, checkupImageLoadError, checkupImageIsFallback] =
+    useRelatedImage({
+      ...storageCheckupImageSettings,
+      cluster,
+    });
+
+  const [advancedSettings, setAdvancedSettings] = useState<StorageCheckupAdvancedSettings>({
+    numOfVMs: '',
+    skipTeardown: 'never',
+    storageClass: '',
+    vmiTimeout: '',
+  });
+
+  const [storageClasses, storageClassesLoaded, storageClassesError] = useK8sWatchData<
+    IoK8sApiStorageV1StorageClass[]
+  >({
+    cluster,
+    groupVersionKind: modelToGroupVersionKind(StorageClassModel),
+    isList: true,
+  });
+
+  const defaultSC = useMemo(() => getDefaultStorageClass(storageClasses ?? []), [storageClasses]);
+
+  const hasAppliedDefaultSCRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasAppliedDefaultSCRef.current && storageClassesLoaded && !isEmpty(defaultSC)) {
+      setAdvancedSettings((prev) => ({ ...prev, storageClass: defaultSC?.metadata?.name }));
+      hasAppliedDefaultSCRef.current = true;
+    }
+  }, [defaultSC, storageClassesLoaded]);
+
+  return (
+    <Grid>
+      <GridItem span={6}>
+        <Form className={'CheckupsStorageForm--main'}>
+          <FormSection title={t('Run storage checkup')} titleElement="h1">
+            {t(
+              `Storage checkup validating storage is working correctly for VirtualMachines using the kiagnose engine.`,
+            )}
+
+            <FormGroup fieldId="name" isRequired label={t('Name')}>
+              <TextInput
+                id="name"
+                isRequired
+                name="name"
+                onChange={(_event, value) => setName(value)}
+                value={name}
+              />
+            </FormGroup>
+            <FormGroup
+              fieldId="timeout"
+              isRequired
+              label={t('Timeout (minutes)')}
+              labelHelp={
+                <HelpTextIcon
+                  bodyContent={t('How much time before the check will try to close itself')}
+                  position={PopoverPosition.right}
+                />
+              }
+            >
+              <TextInput
+                className="CheckupsStorageForm--main__number-input"
+                id="timeout"
+                isRequired
+                name="timeout"
+                onChange={(_event, val) => setTimeOut(val)}
+                type="number"
+                value={timeOut}
+              />
+            </FormGroup>
+            {(checkupImageLoadError || checkupImageIsFallback) && (
+              <CheckupImageField
+                checkupImage={checkupImage}
+                checkupImageLoaded={checkupImageLoaded}
+                checkupImageLoadError={checkupImageLoadError}
+                isFallback={checkupImageIsFallback}
+              />
+            )}
+            <AdvancedSettings
+              defaultSC={defaultSC}
+              setSettings={setAdvancedSettings}
+              settings={advancedSettings}
+              storageClasses={storageClasses}
+              storageClassesError={storageClassesError}
+              storageClassesLoaded={storageClassesLoaded}
+            />
+            <CheckupsStorageFormActions
+              advancedSettings={{
+                ...advancedSettings,
+                storageClass: advancedSettings.storageClass || defaultSC?.metadata?.name,
+              }}
+              checkupImage={checkupImage}
+              name={name}
+              timeOut={timeOut}
+            />
+          </FormSection>
+        </Form>
+      </GridItem>
+    </Grid>
+  );
+};
+
+export default CheckupsStorageForm;

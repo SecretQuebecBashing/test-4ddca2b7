@@ -1,0 +1,151 @@
+name: IBM Cloud Cleanup All Resources
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'Cluster name prefix to clean (deletes ALL matching resources)'
+        required: true
+        default: 'kubevirt-plugin-ci'
+        type: string
+      dry_run:
+        description: 'Dry run (list resources without deleting)'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      clean_vpc:
+        description: 'Also clean VPC, subnets, and gateways'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      expected_cluster_count:
+        description: >-
+          Safety gate (destructive runs only): cluster_name is a PREFIX match, and
+          with multiple concurrent hot clusters (e.g. kubevirt-plugin-ci-91 also
+          starts with kubevirt-plugin-ci) it can silently match more than one
+          cluster. Set this to how many distinct clusters you expect to match; the
+          run fails before deleting anything if the actual count differs.
+        required: true
+        default: '1'
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CLUSTER_NAME: ${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}
+  DRY_RUN: ${{ inputs.dry_run || 'true' }}
+
+jobs:
+  cleanup:
+    name: Clean All IBM Cloud Resources
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install infra-script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Validate cluster_name format
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/validate-cluster-name-prefix.ts
+
+      - name: Setup IBM Cloud CLI
+        uses: IBM/actions-ibmcloud-cli@v2
+        with:
+          api_key: ${{ secrets.IC_KEY }}
+          region: us-south
+          group: cnv-ui
+          plugins: kubernetes-service, vpc-infrastructure
+
+      - name: Install CIS plugin
+        run: ibmcloud plugin install cis -f 2>/dev/null || true
+
+      - name: Detect distinct clusters matching prefix
+        id: detect_clusters
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/detect-matching-clusters.ts
+
+      - name: Enforce expected cluster count
+        if: env.DRY_RUN == 'false' && steps.detect_clusters.outputs.detection_available == 'true'
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          EXPECTED_COUNT: ${{ inputs.expected_cluster_count || '1' }}
+          ACTUAL_COUNT: ${{ steps.detect_clusters.outputs.count }}
+          MATCHED_CLUSTERS: ${{ steps.detect_clusters.outputs.clusters }}
+        run: npx tsx src/scripts/enforce-cluster-count.ts
+
+      - name: Setup scripts
+        if: env.DRY_RUN == 'false' && steps.detect_clusters.outputs.detection_available == 'true'
+        uses: ./.github/actions/setup-gh-scripts
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+
+      - name: Check for active CI jobs on matched clusters
+        if: env.DRY_RUN == 'false' && steps.detect_clusters.outputs.detection_available == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MATCHED_CLUSTERS: ${{ steps.detect_clusters.outputs.clusters }}
+        working-directory: .github/scripts
+        run: npx tsx src/infra/cleanup-busy-check.ts
+
+      # Delegates to the same shared script used by ibmc-cluster-setup.yml
+      # and ibmc-cluster-teardown.yml so all cleanup call sites stay in
+      # sync. No ZONE passed -- "Setup IBM Cloud CLI" above already
+      # targets us-south directly for this workflow.
+      - name: Clean up VPC resources for matching prefix
+        continue-on-error: true
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          CLEAN_VPC: ${{ inputs.clean_vpc }}
+        run: bash ./ci-scripts/hot-cluster/cleanup-vpc-resources.sh
+
+      - name: Find ROKS clusters
+        run: |
+          echo "=== ROKS Clusters ==="
+          ibmcloud oc cluster ls 2>&1 | rg "${CLUSTER_NAME}" || echo "No ROKS clusters matching '${CLUSTER_NAME}'."
+
+      # Reuses the existing kubevirt-plugin-arc GitHub App (already scoped to
+      # exactly `administration: write`, the permission runner
+      # registration/deregistration needs).
+      - name: Generate ARC app token for ghost-runner cleanup
+        id: arc-app-token
+        if: env.DRY_RUN == 'false'
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.ARC_GITHUB_APP_ID }}
+          private-key: ${{ secrets.ARC_GITHUB_APP_PRIVATE_KEY }}
+          permission-administration: write
+
+      - name: Clean up ghost runners for matched clusters
+        if: env.DRY_RUN == 'false'
+        continue-on-error: true
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          GH_TOKEN: ${{ steps.arc-app-token.outputs.token }}
+          MATCHED_CLUSTERS: ${{ steps.detect_clusters.outputs.clusters }}
+        run: npx tsx src/scripts/cleanup-ghost-runners-bulk.ts
+
+      - name: Summary
+        if: always()
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          MATCHED_CLUSTERS: ${{ steps.detect_clusters.outputs.clusters }}
+          MATCHED_COUNT: ${{ steps.detect_clusters.outputs.count }}
+          DETECTION_AVAILABLE: ${{ steps.detect_clusters.outputs.detection_available }}
+          CLEAN_VPC: ${{ inputs.clean_vpc }}
+          EXPECTED_CLUSTER_COUNT: ${{ inputs.expected_cluster_count }}
+        run: npx tsx src/scripts/write-cleanup-summary.ts

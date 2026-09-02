@@ -1,0 +1,71 @@
+import React, { FC } from 'react';
+
+import { getCancelUploadLabel } from '@kubevirt-utils/hooks/useCDIUpload/utils';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import {
+  Alert,
+  AlertVariant,
+  Button,
+  ButtonVariant,
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateBody,
+  Progress,
+  Stack,
+  StackItem,
+} from '@patternfly/react-core';
+import { InProgressIcon } from '@patternfly/react-icons';
+
+import { UPLOAD_STATUS } from '../../utils/consts';
+import { UploadingStatusProps } from '../../utils/types';
+import { getProgressVariant } from '../../utils/utils';
+
+const UploadingStatus: FC<UploadingStatusProps> = ({ onCancelClick, onSuccessClick, upload }) => {
+  const { t } = useKubevirtTranslation();
+  return (
+    <EmptyState
+      headingLevel="h4"
+      icon={InProgressIcon}
+      titleText={t('Uploading data to PersistentVolumeClaim')}
+    >
+      <EmptyStateBody>
+        <Stack hasGutter>
+          {upload?.uploadStatus === UPLOAD_STATUS.UPLOADING && (
+            <StackItem>
+              <Alert
+                className="kv--create-upload__alert"
+                isInline
+                title={t('Please don’t close this browser tab')}
+                variant={AlertVariant.warning}
+              >
+                {t('Closing it will cause the upload to fail. You may still navigate the console.')}
+              </Alert>
+            </StackItem>
+          )}
+          <StackItem>
+            {t(
+              'PersistentVolumeClaim has been created and your data source is now being uploaded to it. Once the uploading is completed the PersistentVolumeClaim will become available',
+            )}
+          </StackItem>
+          <StackItem>
+            <Progress value={upload?.progress} variant={getProgressVariant(upload?.uploadStatus)} />
+          </StackItem>
+        </Stack>
+      </EmptyStateBody>
+      {onSuccessClick && (
+        <Button id="cdi-upload-primary-pvc" onClick={onSuccessClick}>
+          {t('View PersistentVolumeClaim details')}
+        </Button>
+      )}
+      {onCancelClick && upload?.uploadStatus === UPLOAD_STATUS.UPLOADING && (
+        <EmptyStateActions>
+          <Button id="cdi-upload-cancel-btn" onClick={onCancelClick} variant={ButtonVariant.link}>
+            {getCancelUploadLabel(t)}
+          </Button>
+        </EmptyStateActions>
+      )}
+    </EmptyState>
+  );
+};
+
+export default UploadingStatus;

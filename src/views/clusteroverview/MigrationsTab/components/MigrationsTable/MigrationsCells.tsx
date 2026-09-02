@@ -1,0 +1,168 @@
+import React, { type ComponentType, type FC } from 'react';
+
+import {
+  modelToGroupVersionKind,
+  NamespaceModel,
+  VirtualMachineInstanceMigrationModelGroupVersionKind,
+  VirtualMachineModelGroupVersionKind,
+} from '@kubevirt-ui-ext/kubevirt-api/console';
+import NodeLink from '@kubevirt-utils/components/NodeLink/NodeLink';
+import Timestamp from '@kubevirt-utils/components/Timestamp/Timestamp';
+import { getName, getNamespace } from '@kubevirt-utils/resources/shared';
+import { NO_DATA_DASH } from '@kubevirt-utils/resources/vm/utils/constants';
+import {
+  getMigrationPhase,
+  getMigrationSourceNode,
+  getMigrationTargetNode,
+} from '@kubevirt-utils/resources/vmim/selectors';
+import { vmimStatuses } from '@kubevirt-utils/resources/vmim/statuses';
+import MulticlusterResourceLink from '@multicluster/components/MulticlusterResourceLink/MulticlusterResourceLink';
+import { getCluster } from '@multicluster/helpers/selectors';
+import useIsACMPage from '@multicluster/useIsACMPage';
+import { GenericStatus } from '@openshift-console/dynamic-plugin-sdk';
+import { Progress, ProgressMeasureLocation, Tooltip } from '@patternfly/react-core';
+
+import MigrationPolicyTooltip from './components/MigrationPolicyTooltip/MigrationPolicyTooltip';
+import useMigrationProgress from './hooks/useMigrationProgress';
+import MigrationActionsDropdown from './MigrationActionsDropdown';
+import { getStatusIcon } from './utils/statuses';
+import { type MigrationTableDataLayout } from './utils/utils';
+
+type CellProps = {
+  row: MigrationTableDataLayout;
+};
+
+export const VMNameCell: FC<CellProps> = ({ row }) => {
+  const { vmim, vmiObj } = row;
+  const vmName = getName(vmiObj) ?? vmim?.spec?.vmiName;
+  const vmNamespace = getNamespace(vmiObj) ?? getNamespace(vmim);
+  const cluster = getCluster(vmiObj) ?? getCluster(vmim);
+
+  if (!vmName) {
+    return <span>{NO_DATA_DASH}</span>;
+  }
+
+  return (
+    <span data-test={`migration-vm-name-${vmName}`}>
+      <MulticlusterResourceLink
+        cluster={cluster}
+        groupVersionKind={VirtualMachineModelGroupVersionKind}
+        name={vmName}
+        namespace={vmNamespace}
+      />
+    </span>
+  );
+};
+
+export const NamespaceCell: FC<CellProps> = ({ row }) => {
+  const { vmim, vmiObj } = row;
+  const isACMPage = useIsACMPage();
+  const namespace = getNamespace(vmiObj) ?? getNamespace(vmim);
+  const cluster = getCluster(vmiObj) ?? getCluster(vmim);
+
+  if (!namespace) {
+    return <span>{NO_DATA_DASH}</span>;
+  }
+
+  return (
+    <span data-test={`migration-namespace-${namespace}`}>
+      <MulticlusterResourceLink
+        cluster={isACMPage ? cluster : undefined}
+        groupVersionKind={modelToGroupVersionKind(NamespaceModel)}
+        name={namespace}
+      />
+    </span>
+  );
+};
+
+export const StatusCell: FC<CellProps> = ({ row }) => {
+  const { vmim, vmiObj } = row;
+  const migrationPhase = getMigrationPhase(vmim);
+  const StatusIcon = getStatusIcon(migrationPhase) as ComponentType;
+  const showTooltip =
+    migrationPhase === vmimStatuses.Failed || migrationPhase === vmimStatuses.Succeeded;
+  const endTimestamp = vmiObj?.status?.migrationState?.endTimestamp;
+  const timestampSuffix = endTimestamp ? ` ${endTimestamp}` : '';
+  const tooltipContent = `${migrationPhase}${timestampSuffix}`;
+
+  return (
+    <span data-test={`migration-status-${getName(vmim)}`}>
+      <Tooltip content={tooltipContent} hidden={!showTooltip}>
+        <span tabIndex={showTooltip ? 0 : undefined}>
+          <GenericStatus Icon={StatusIcon} title={migrationPhase} />
+        </span>
+      </Tooltip>
+    </span>
+  );
+};
+
+export const ProgressCell: FC<CellProps> = ({ row }) => {
+  const { vmim, vmiObj } = row;
+  const migrationPhase = getMigrationPhase(vmim);
+  const { percentage, progressVariant } = useMigrationProgress(vmiObj, migrationPhase);
+
+  if (!vmiObj) {
+    return <span data-test={`migration-progress-${getName(vmim)}`}>{NO_DATA_DASH}</span>;
+  }
+
+  return (
+    <span data-test={`migration-progress-${getName(vmim)}`}>
+      <Progress
+        aria-label={`Migration progress: ${percentage}%`}
+        measureLocation={ProgressMeasureLocation.top}
+        value={percentage}
+        variant={progressVariant}
+      />
+    </span>
+  );
+};
+
+export const SourceNodeCell: FC<CellProps> = ({ row }) => {
+  const { vmim, vmiObj } = row;
+  return (
+    <span data-test={`migration-source-${getName(vmim)}`}>
+      <NodeLink
+        cluster={getCluster(vmiObj) ?? getCluster(vmim) ?? ''}
+        nodeName={getMigrationSourceNode(vmim)}
+      />
+    </span>
+  );
+};
+
+export const TargetNodeCell: FC<CellProps> = ({ row }) => {
+  const { vmim, vmiObj } = row;
+  return (
+    <span data-test={`migration-target-${getName(vmim)}`}>
+      <NodeLink
+        cluster={getCluster(vmiObj) ?? getCluster(vmim) ?? ''}
+        nodeName={getMigrationTargetNode(vmim)}
+      />
+    </span>
+  );
+};
+
+export const MigrationPolicyCell: FC<CellProps> = ({ row }) => (
+  <span data-test={`migration-policy-${getName(row.vmim)}`}>
+    <MigrationPolicyTooltip obj={row} />
+  </span>
+);
+
+export const VMIMNameCell: FC<CellProps> = ({ row }) => (
+  <span data-test={`migration-vmim-name-${getName(row.vmim)}`}>
+    <MulticlusterResourceLink
+      cluster={getCluster(row.vmiObj) ?? getCluster(row.vmim)}
+      groupVersionKind={VirtualMachineInstanceMigrationModelGroupVersionKind}
+      name={getName(row.vmim)}
+      namespace={getNamespace(row.vmim)}
+    />
+  </span>
+);
+
+export const CreatedCell: FC<CellProps> = ({ row }) => (
+  <span data-test={`migration-created-${getName(row.vmim)}`}>
+    <Timestamp timestamp={row.vmim?.metadata?.creationTimestamp} />
+  </span>
+);
+export const ActionsCell: FC<CellProps> = ({ row }) => (
+  <MigrationActionsDropdown isKebabToggle vmim={row.vmim} />
+);

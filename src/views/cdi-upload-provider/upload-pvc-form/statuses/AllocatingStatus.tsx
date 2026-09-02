@@ -1,0 +1,19 @@
+import React, { FC } from 'react';
+
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { EmptyState, EmptyStateBody, Spinner } from '@patternfly/react-core';
+
+const AllocatingStatus: FC = () => {
+  const { t } = useKubevirtTranslation();
+  return (
+    <EmptyState headingLevel="h4" icon={Spinner} titleText={t('Allocating resources')}>
+      <EmptyStateBody>
+        {t(
+          'Please wait, once the DataVolume has been created the data will start uploading into this PersistentVolumeClaim.',
+        )}
+      </EmptyStateBody>
+    </EmptyState>
+  );
+};
+
+export default AllocatingStatus;

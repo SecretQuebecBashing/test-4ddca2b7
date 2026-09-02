@@ -1,0 +1,11 @@
+.dev-preview-label {
+  background-color: var(--pf-v6-c-label--m-orange--BackgroundColor);
+
+  .pf-v6-c-label__content {
+    color: var(--pf-t--color--yellow--70);
+  }
+
+  .pf-v6-c-label__icon {
+    color: var(--pf-t--color--orange--40);
+  }
+}

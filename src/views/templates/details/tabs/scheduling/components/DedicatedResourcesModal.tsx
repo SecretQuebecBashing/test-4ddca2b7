@@ -1,0 +1,152 @@
+import React, { type FC, useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import produce from 'immer';
+import { isDedicatedCPUPlacement } from 'src/views/templates/utils/utils';
+
+import { type IoK8sApiCoreV1Node } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import {
+  cpuManagerLabel,
+  cpuManagerLabelKey,
+  cpuManagerLabelValue,
+} from '@kubevirt-utils/components/DedicatedResourcesModal/utils/constants';
+import { getDedicatedResourcesSearchHREF } from '@kubevirt-utils/components/DedicatedResourcesModal/utils/utils';
+import Loading from '@kubevirt-utils/components/Loading/Loading';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { modelToGroupVersionKind, NodeModel } from '@kubevirt-utils/models';
+import { getTemplateVirtualMachineObject, type Template } from '@kubevirt-utils/resources/template';
+import { ensurePath, isEmpty } from '@kubevirt-utils/utils/utils';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { ResourceLink, useK8sWatchResource } from '@openshift-console/dynamic-plugin-sdk';
+import {
+  Alert,
+  AlertVariant,
+  Button,
+  ButtonVariant,
+  Checkbox,
+  FormGroup,
+  Label,
+  Popover,
+} from '@patternfly/react-core';
+
+type DedicatedResourcesModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (updatedTemplate: Template) => Promise<Template | void>;
+  template: Template;
+};
+
+const DedicatedResourcesModal: FC<DedicatedResourcesModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  template,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const cluster = getCluster(template);
+  const [checked, setChecked] = useState<boolean>(() => isDedicatedCPUPlacement(template));
+  const [nodes, nodesLoaded, loadError] = useK8sWatchResource<IoK8sApiCoreV1Node[]>({
+    groupVersionKind: modelToGroupVersionKind(NodeModel),
+    isList: true,
+  }) as [IoK8sApiCoreV1Node[], boolean, Error];
+
+  const { hasNodes, qualifiedNodes } = useMemo(() => {
+    const filteredNodes = nodes?.filter(
+      (node) => node?.metadata?.labels?.[cpuManagerLabelKey] === cpuManagerLabelValue,
+    );
+    return {
+      hasNodes: !!filteredNodes?.length,
+      qualifiedNodes: filteredNodes,
+    };
+  }, [nodes]);
+
+  const updatedTemplate = useMemo(() => {
+    return produce<Template>(template, (templateDraft: Template) => {
+      const draftVM = getTemplateVirtualMachineObject(templateDraft);
+      ensurePath(draftVM, ['spec.template.spec.domain.cpu']);
+      draftVM.spec.template.spec.domain.cpu.dedicatedCpuPlacement = checked;
+    });
+  }, [checked, template]);
+
+  return (
+    <TabModal
+      headerText={t('Dedicated resources')}
+      isOpen={isOpen}
+      obj={updatedTemplate}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      shouldWrapInForm
+    >
+      <FormGroup fieldId="dedicated-resources" isInline>
+        <Checkbox
+          description={
+            <>
+              {t('Available only on Nodes with labels')}{' '}
+              <Label className="pf-v6-u-ml-xs" color="purple" variant="outline">
+                {!isEmpty(nodes) ? (
+                  <Link target="_blank" to={getDedicatedResourcesSearchHREF(cluster)}>
+                    {cpuManagerLabel}
+                  </Link>
+                ) : (
+                  cpuManagerLabel
+                )}
+              </Label>
+            </>
+          }
+          id="dedicated-resources"
+          isChecked={checked}
+          label={t('Schedule this workload with dedicated resources (guaranteed policy)')}
+          onChange={(_event, check: boolean) => setChecked(check)}
+        />
+      </FormGroup>
+      <FormGroup fieldId="dedicated-resources-node">
+        {!isEmpty(nodes) ? (
+          <Alert
+            isInline
+            title={
+              hasNodes
+                ? t('{{qualifiedNodesCount}} matching nodes found', {
+                    qualifiedNodesCount: qualifiedNodes?.length,
+                  })
+                : t('No matching nodes found for the {{cpuManagerLabel}} label', {
+                    cpuManagerLabel,
+                  })
+            }
+            variant={hasNodes ? AlertVariant.success : AlertVariant.warning}
+          >
+            {hasNodes ? (
+              <Popover
+                bodyContent={
+                  <>
+                    {qualifiedNodes?.map((node) => (
+                      <ResourceLink
+                        groupVersionKind={modelToGroupVersionKind(NodeModel)}
+                        key={node.metadata.uid}
+                        name={node.metadata.name}
+                      />
+                    ))}
+                  </>
+                }
+                headerContent={t('{{qualifiedNodesCount}} nodes found', {
+                  qualifiedNodesCount: qualifiedNodes?.length,
+                })}
+              >
+                <Button isInline onClick={() => setChecked(false)} variant={ButtonVariant.link}>
+                  {t('view {{qualifiedNodesCount}} matching nodes', {
+                    qualifiedNodesCount: qualifiedNodes?.length,
+                  })}
+                </Button>
+              </Popover>
+            ) : (
+              t('Scheduling will not be possible at this state')
+            )}
+          </Alert>
+        ) : (
+          !loadError && !nodesLoaded && <Loading />
+        )}
+      </FormGroup>
+    </TabModal>
+  );
+};
+
+export default DedicatedResourcesModal;

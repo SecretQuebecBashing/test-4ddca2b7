@@ -1,0 +1,40 @@
+import React, { FC } from 'react';
+
+import { IoK8sApiCoreV1Service } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { DescriptionList } from '@patternfly/react-core';
+
+import ConsoleOverVirtctl from './components/ConsoleOverVirtctl';
+import SSHCommand from './components/SSHCommand';
+
+type SSHAccessProps = {
+  isCustomizeInstanceType?: boolean;
+  sshService: IoK8sApiCoreV1Service;
+  sshServiceError?: Error;
+  sshServiceLoaded?: boolean;
+  vm: V1VirtualMachine;
+};
+
+const SSHAccess: FC<SSHAccessProps> = ({
+  isCustomizeInstanceType,
+  sshService,
+  sshServiceError,
+  sshServiceLoaded,
+  vm,
+}) => {
+  return (
+    <DescriptionList>
+      {!isCustomizeInstanceType && (
+        <SSHCommand
+          sshService={sshService}
+          sshServiceError={sshServiceError}
+          sshServiceLoaded={sshServiceLoaded}
+          vm={vm}
+        />
+      )}
+      <ConsoleOverVirtctl vm={vm} />
+    </DescriptionList>
+  );
+};
+
+export default SSHAccess;

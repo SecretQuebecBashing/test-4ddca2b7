@@ -1,0 +1,28 @@
+.kubevirt-create-vm-modal__cloud-init-help-link {
+  padding-left: var(--pf-t--global--spacer--xs);
+}
+
+.kv-cloudinit-advanced-tab--form,
+.kv-cloudinit-advanced-tab--main {
+  width: 50vh;
+}
+
+.kv-cloudinit-info-helper--main {
+  margin-bottom: var(--pf-t--global--spacer--md);
+}
+
+.kv-cloudinit--radio {
+  align-items: center;
+
+  .pf-v6-c-radio {
+    align-items: center;
+
+    input[type='radio'] {
+      margin-right: 0;
+    }
+  }
+}
+
+.kv-cloudinit--ssh-form {
+  margin-top: var(--pf-t--global--spacer--md);
+}

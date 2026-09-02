@@ -1,0 +1,118 @@
+import produce from 'immer';
+
+import { VirtualMachineModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  V1Network,
+  V1VirtualMachine,
+  V1VirtualMachineInstance,
+  V1VirtualMachineInstanceNetworkInterface,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { getInterface, getInterfaces } from '@kubevirt-utils/resources/vm';
+import { DEFAULT_NETWORK_INTERFACE } from '@kubevirt-utils/resources/vm/utils/constants';
+import {
+  getConfigInterfaceState,
+  getConfigInterfaceStateFromVM,
+  hasAutoAttachedPodNetwork,
+  isSRIOVNetworkByVM,
+} from '@kubevirt-utils/resources/vm/utils/network/selectors';
+import { NetworkInterfaceState } from '@kubevirt-utils/resources/vm/utils/network/types';
+import { getVMIInterfaces, getVMIStatusInterfaces } from '@kubevirt-utils/resources/vmi';
+import { isNetworkInterfaceState } from '@kubevirt-utils/utils/typeGuards';
+import { ensurePath, kubevirtConsole } from '@kubevirt-utils/utils/utils';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { kubevirtK8sUpdate } from '@multicluster/k8sRequests';
+import { isRunning, isStopped } from '@virtualmachines/utils';
+
+import { ABSENT } from './constants';
+
+export const isActiveOnGuest = (
+  vmi: V1VirtualMachineInstance,
+  nicName: string,
+  isVMRunning?: boolean,
+) =>
+  (isVMRunning ? getVMIStatusInterfaces(vmi) : getVMIInterfaces(vmi))?.some(
+    (iface) => iface?.name === nicName,
+  );
+
+export const isAbsent = (vm: V1VirtualMachine, nicName: string) =>
+  getInterfaces(vm)?.find((iface) => iface?.name === nicName)?.state === ABSENT;
+
+export const isPendingNICAdd = (
+  vm: V1VirtualMachine,
+  vmi: V1VirtualMachineInstance,
+  nicName: string,
+): boolean => {
+  const vmRunning = isRunning(vm);
+  const vmiAvailable = !!vmi;
+
+  return (
+    vmRunning &&
+    vmiAvailable &&
+    (!isActiveOnGuest(vmi, nicName, vmRunning) || isAbsent(vm, nicName))
+  );
+};
+
+export const interfaceNotFound = (vm: V1VirtualMachine, nicName: string) =>
+  !Boolean(getInterfaces(vm)?.find((iface) => iface?.name === nicName));
+
+//special case - when u add ephemeral nic from vm console terminal
+export const isInterfaceEphemeral = (
+  network: V1Network,
+  ifaceVMIStatus: V1VirtualMachineInstanceNetworkInterface,
+) => {
+  const ifaceVMI = !network && ifaceVMIStatus && ifaceVMIStatus?.infoSource === 'guest-agent';
+
+  return ifaceVMI;
+};
+
+export const isPendingNICRemoval = (
+  vm: V1VirtualMachine,
+  vmi: V1VirtualMachineInstance,
+  nicName: string,
+): boolean => {
+  if (!vmi || isStopped(vm)) return false;
+
+  const isVMRunning = isRunning(vm);
+
+  const autoAttachPodInterface = hasAutoAttachedPodNetwork(vm);
+
+  if (
+    autoAttachPodInterface &&
+    nicName === DEFAULT_NETWORK_INTERFACE.name &&
+    isActiveOnGuest(vmi, nicName, isVMRunning)
+  )
+    return false;
+
+  return interfaceNotFound(vm, nicName) && isActiveOnGuest(vmi, nicName, isVMRunning);
+};
+
+export { getConfigInterfaceState, getConfigInterfaceStateFromVM, isSRIOVNetworkByVM };
+
+export const isSRIOVInterface = <T extends { sriov?: object }>(iface: T) => !!iface?.sriov;
+
+export const getRuntimeInterfaceState = (simpleIfaceState: string): NetworkInterfaceState => {
+  return isNetworkInterfaceState(simpleIfaceState) ? simpleIfaceState : NetworkInterfaceState.NONE;
+};
+
+export const setNetworkInterfaceState = (
+  vm: V1VirtualMachine,
+  nicName: string,
+  desiredState: NetworkInterfaceState,
+): Promise<V1VirtualMachine | void> => {
+  if (!getInterface(vm, nicName)) return undefined;
+
+  const updatedVM = produce(vm, (draftVM) => {
+    ensurePath(draftVM, ['spec.template.spec.domain.devices.interfaces']);
+    const ifaceToUpdate = getInterface(draftVM, nicName);
+    ifaceToUpdate.state = desiredState;
+  });
+
+  return kubevirtK8sUpdate({
+    cluster: getCluster(vm),
+    data: updatedVM,
+    model: VirtualMachineModel,
+  }).catch((error) => kubevirtConsole.error(error));
+};
+
+export const isLinkStateEditable = (state: NetworkInterfaceState) =>
+  state === NetworkInterfaceState.DOWN || state === NetworkInterfaceState.UP;

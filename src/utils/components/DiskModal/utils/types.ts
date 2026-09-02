@@ -1,0 +1,132 @@
+import { TFunction } from 'i18next';
+
+import { V1beta1DataVolume } from '@kubevirt-ui-ext/kubevirt-api/containerized-data-importer';
+import { IoK8sApiCoreV1PersistentVolumeClaim } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import {
+  V1DataVolumeTemplateSpec,
+  V1Disk,
+  V1VirtualMachine,
+  V1Volume,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { UploadDataProps } from '@kubevirt-utils/hooks/useCDIUpload/types';
+
+export type RegistryCredentials = { password: string; username: string };
+
+export enum SourceTypes {
+  BLANK = 'blank',
+  CDROM = 'cdrom',
+  CLONE_PVC = 'pvc',
+  DATA_SOURCE = 'dataSource',
+  EPHEMERAL = 'containerDisk',
+  HTTP = 'http',
+  OTHER = 'Other',
+  PVC = 'persistentVolumeClaim', // Existing PVC
+  REGISTRY = 'registry',
+  UPLOAD = 'upload',
+  VOLUME_SNAPSHOT = 'snapshot',
+}
+
+export enum InterfaceTypes {
+  SATA = 'sata',
+  SCSI = 'scsi',
+  VIRTIO = 'virtio',
+}
+
+export enum VolumeTypes {
+  CLOUD_INIT_CONFIG_DRIVE = 'cloudInitConfigDrive',
+  CLOUD_INIT_NO_CLOUD = 'cloudInitNoCloud',
+  CONFIG_MAP = 'configMap',
+  CONTAINER_DISK = 'containerDisk',
+  DATA_VOLUME = 'dataVolume',
+  PERSISTENT_VOLUME_CLAIM = 'persistentVolumeClaim',
+  SECRET = 'secret',
+  SERVICE_ACCOUNT = 'serviceAccount',
+}
+
+export type V1DiskFormState = {
+  cluster?: string;
+  dataVolumeTemplate?: V1DataVolumeTemplateSpec;
+  disk: V1Disk;
+  expandPVCSize?: string;
+  isBootSource: boolean;
+  registryCredentials?: RegistryCredentials;
+  storageClassProvisioner?: string;
+  storageProfileSettingsApplied?: boolean;
+  uploadFile?: { file: File; filename: string };
+  volume?: V1Volume;
+};
+
+export type DefaultFormValues = Partial<V1DiskFormState>;
+
+export type V1DiskModalProps = {
+  createDiskSource?: SourceTypes;
+  createdPVCName?: string;
+  defaultFormValues?: DefaultFormValues;
+  editDiskName?: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (
+    updatedVM: V1VirtualMachine,
+    diskFormState?: V1DiskFormState,
+  ) => Promise<V1VirtualMachine | void>;
+  onUploadedDataVolume?: (dataVolume: V1beta1DataVolume) => void;
+  onUploadStarted?: (uploadPromise: Promise<unknown>, cdromDiskName?: string) => void;
+  vm: V1VirtualMachine;
+};
+
+export type V1SubDiskModalProps = V1DiskModalProps & {
+  defaultFormValues?: DefaultFormValues;
+  isCreated: boolean;
+  pvc: IoK8sApiCoreV1PersistentVolumeClaim;
+};
+
+export type UploadDataVolumeOptions = {
+  abortTooltip?: string;
+  onCancelCleanup?: () => Promise<void>;
+};
+
+export type UploadDataVolumeParams = {
+  data: V1DiskFormState;
+  dvName?: string;
+  options?: UploadDataVolumeOptions;
+  t: TFunction;
+  uploadData: ({ dataVolume, file }: UploadDataProps) => Promise<void>;
+  uploadKey?: string;
+  vm: V1VirtualMachine;
+};
+
+export type BuildUploadTrackMetadataParams = {
+  abortTooltip: UploadDataVolumeOptions['abortTooltip'];
+  data: V1DiskFormState;
+  dataVolume: V1beta1DataVolume;
+  file: File;
+  isCDROM: boolean;
+  onCancelCleanup: UploadDataVolumeOptions['onCancelCleanup'];
+  t: TFunction;
+  uploadKey: string | undefined;
+  vm: V1VirtualMachine;
+};
+
+export type SubmitInput = {
+  data: V1DiskFormState;
+  editDiskName: string;
+  isHotpluggable?: boolean;
+  onSubmit: (
+    updatedVM: V1VirtualMachine,
+    diskFormState?: V1DiskFormState,
+  ) => Promise<V1VirtualMachine | void>;
+  pvc?: IoK8sApiCoreV1PersistentVolumeClaim;
+  vm: V1VirtualMachine;
+};
+
+export type SubmitCDROMInput = {
+  isHotPluggable: boolean;
+  onSubmit: V1DiskModalProps['onSubmit'];
+  onUploadedDataVolume?: V1DiskModalProps['onUploadedDataVolume'];
+  onUploadStarted?: V1DiskModalProps['onUploadStarted'];
+  selectedISO: string;
+  t: TFunction;
+  uploadData: ({ dataVolume, file }: UploadDataProps) => Promise<void>;
+  uploadEnabled: boolean;
+  vm: V1VirtualMachine;
+};

@@ -1,0 +1,77 @@
+import React, { useMemo } from 'react';
+
+import {
+  VirtualMachineInstancetypeModel,
+  VirtualMachineInstancetypeModelRef,
+} from '@kubevirt-ui-ext/kubevirt-api/console';
+import { type V1beta1VirtualMachineInstancetype } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import CloneResourceModal from '@kubevirt-utils/components/CloneResourceModal/CloneResourceModal';
+import DeleteModal from '@kubevirt-utils/components/DeleteModal/DeleteModal';
+import { useModal } from '@kubevirt-utils/components/ModalProvider/ModalProvider';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { asAccessReview } from '@kubevirt-utils/resources/shared';
+import { kubevirtK8sDelete } from '@multicluster/k8sRequests';
+import { type Action, useK8sModel } from '@openshift-console/dynamic-plugin-sdk';
+
+type UseUserInstancetypeActionsProviderValues = [Action[], boolean];
+
+type UseUserInstancetypeActionsProvider = (
+  instanceType: V1beta1VirtualMachineInstancetype,
+) => UseUserInstancetypeActionsProviderValues;
+
+const useUserInstancetypeActionsProvider: UseUserInstancetypeActionsProvider = (instanceType) => {
+  const { t } = useKubevirtTranslation();
+  const { createModal } = useModal();
+
+  const [, inFlight] = useK8sModel(VirtualMachineInstancetypeModelRef);
+  const actions: Action[] = useMemo(() => {
+    const onDeleteSubmit = (): Promise<unknown> =>
+      kubevirtK8sDelete({
+        cluster: instanceType?.cluster,
+        model: VirtualMachineInstancetypeModel,
+        resource: instanceType,
+      });
+
+    return [
+      {
+        accessReview: asAccessReview(VirtualMachineInstancetypeModel, instanceType, 'create'),
+        cta: () =>
+          createModal((modalProps) => {
+            return (
+              <CloneResourceModal
+                {...modalProps}
+                model={VirtualMachineInstancetypeModel}
+                namespace={instanceType?.metadata?.namespace}
+                object={instanceType}
+              />
+            );
+          }),
+        disabled: false,
+        id: 'instacetype-clone-action',
+        label: t('Clone'),
+      },
+      {
+        accessReview: asAccessReview(VirtualMachineInstancetypeModel, instanceType, 'delete'),
+        cta: () =>
+          createModal(({ isOpen, onClose }) => {
+            return (
+              <DeleteModal
+                headerText={t('Delete VirtualMachineInstancetype?')}
+                isOpen={isOpen}
+                obj={instanceType}
+                onClose={onClose}
+                onDeleteSubmit={onDeleteSubmit}
+              />
+            );
+          }),
+        disabled: false,
+        id: 'instacetype-delete-action',
+        label: t('Delete'),
+      },
+    ];
+  }, [createModal, instanceType, t]);
+
+  return useMemo(() => [actions, !inFlight], [actions, inFlight]);
+};
+
+export default useUserInstancetypeActionsProvider;

@@ -1,0 +1,123 @@
+import {
+  V1CDRomTarget,
+  V1ContainerDiskSource,
+  V1Disk,
+  V1EmptyDiskSource,
+  V1VirtualMachine,
+  V1VirtualMachineInstance,
+  V1Volume,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { InterfaceTypes } from '@kubevirt-utils/components/DiskModal/utils/types';
+import { getDisks, getVolumes } from '@kubevirt-utils/resources/vm';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { isRunning } from '@virtualmachines/utils';
+
+import { NO_DATA_DASH } from '../constants';
+
+import { DiskType, diskTypes, diskTypesLabels } from './constants';
+
+/**
+ * returns a drive type from a disk
+ * @param {V1Disk} disk disk
+ * @returns drive type
+ */
+export const getDiskDrive = (disk: V1Disk): DiskType => {
+  const drive = Object.values(diskTypes).find((driveType) => disk?.[driveType]);
+
+  return drive ?? diskTypes.disk;
+};
+
+/**
+ * returns a printable drive type from a disk
+ * @param {V1Disk} disk disk
+ * @returns drive type
+ */
+export const getPrintableDiskDrive = (disk: V1Disk): string => diskTypesLabels[getDiskDrive(disk)];
+
+/**
+ * returns a drive interface from a disk
+ * @param {V1Disk} disk disk
+ * @returns drive interface
+ */
+export const getDiskInterface = (disk: V1Disk): string => disk?.[getDiskDrive(disk)]?.bus;
+
+/**
+ * returns a printable drive interface from a disk
+ * @param {V1Disk} disk disk
+ * @returns drive interface
+ */
+export const getPrintableDiskInterface = (disk: V1Disk): string => {
+  const diskInterface = getDiskInterface(disk);
+  if (!diskInterface) return NO_DATA_DASH;
+
+  if (diskInterface === InterfaceTypes.SCSI || diskInterface === InterfaceTypes.SATA) {
+    return diskInterface.toUpperCase();
+  }
+  return diskInterface ?? NO_DATA_DASH;
+};
+
+export const isCDROMDisk = (disk: V1Disk): boolean => {
+  return getDiskDrive(disk) === diskTypes.cdrom;
+};
+
+export const getCDROMSourceName = (volume: V1Volume): string => {
+  return (
+    volume?.dataVolume?.name ||
+    volume?.persistentVolumeClaim?.claimName ||
+    volume?.containerDisk?.image ||
+    ''
+  );
+};
+
+export const isCDROMMounted = (volume: V1Volume): boolean => {
+  return !isEmpty(getCDROMSourceName(volume));
+};
+
+export const getCDROMStatus = (vm: V1VirtualMachine, vmi?: V1VirtualMachineInstance) => {
+  const isVMRunning = isRunning(vm);
+  const disks = (isVMRunning ? vmi?.spec?.domain?.devices?.disks : getDisks(vm)) || [];
+  const cdroms = disks.filter(isCDROMDisk);
+  const volumes = isVMRunning ? vmi?.spec?.volumes : getVolumes(vm);
+
+  return cdroms.map((disk) => {
+    const volume = volumes?.find((vmVolume) => vmVolume.name === disk.name);
+    const isMounted = volume ? isCDROMMounted(volume) : false;
+
+    return {
+      canDelete: !isVMRunning,
+      canEject: isVMRunning && isMounted,
+      canMount: isVMRunning && !isMounted,
+      disk,
+      isMounted,
+      name: disk.name,
+      sourceName: isMounted ? getCDROMSourceName(volume) : null,
+      volume,
+    };
+  });
+};
+
+export const hasDataVolume = (volume: V1Volume): boolean => {
+  return !isEmpty(volume?.dataVolume?.name);
+};
+
+export const hasPersistentVolumeClaim = (volume: V1Volume): boolean => {
+  return !isEmpty(volume?.persistentVolumeClaim?.claimName);
+};
+
+export const hasContainerDisk = (volume: V1Volume): boolean => {
+  return !isEmpty(volume?.containerDisk?.image);
+};
+
+export const getContainerDiskImage = (volume: V1Volume): null | string => {
+  return volume?.containerDisk?.image?.toLowerCase() || null;
+};
+
+export const getPVCClaimName = (volume: V1Volume) => volume?.persistentVolumeClaim?.claimName;
+
+export const getContainerDisk = (volume: V1Volume): V1ContainerDiskSource => volume?.containerDisk;
+
+export const getDataVolumeName = (volume: V1Volume): string => volume?.dataVolume?.name;
+
+export const getEmptyDisk = (volume: V1Volume): V1EmptyDiskSource => volume?.emptyDisk;
+
+export const getCDRom = (disk: V1Disk): V1CDRomTarget => disk?.cdrom;

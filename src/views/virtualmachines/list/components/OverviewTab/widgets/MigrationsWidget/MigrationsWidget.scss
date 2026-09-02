@@ -1,0 +1,14 @@
+.migrations-widget {
+  &__subheader {
+    --pf-v6-c-content--small--MarginBlockEnd: 0;
+    --pf-v6-c-content--MarginBlockEnd: 0;
+
+    color: var(--pf-t--global--text--color--subtle);
+    min-height: var(--pf-t--global--font--line-height--body);
+  }
+
+  &__view-all-skeleton {
+    display: inline-block;
+    margin-top: var(--pf-t--global--spacer--sm);
+  }
+}

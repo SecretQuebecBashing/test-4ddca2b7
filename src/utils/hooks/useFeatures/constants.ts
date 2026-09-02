@@ -1,0 +1,96 @@
+import { ConfigMapModel, GroupModel, RoleModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  IoK8sApiCoreV1ConfigMap,
+  IoK8sApiRbacV1Role,
+  IoK8sApiRbacV1RoleBinding,
+} from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { K8sVerb } from '@openshift-console/dynamic-plugin-sdk';
+
+export const AUTOMATIC_SUBSCRIPTION_ACTIVATION_KEY = 'automaticSubscriptionActivationKey';
+export const AUTOMATIC_SUBSCRIPTION_ORGANIZATION_ID = 'automaticSubscriptionOrganizationId';
+export const AUTOMATIC_SUBSCRIPTION_CUSTOM_URL = 'automaticSubscriptionCustomUrl';
+export const AUTOMATIC_SUBSCRIPTION_TYPE_KEY = 'automaticSubscriptionType';
+
+export const INSTANCE_TYPE_ENABLED = 'instanceTypesEnabled';
+export const KUBEVIRT_APISERVER_PROXY = 'kubevirtApiserverProxy';
+export const LOAD_BALANCER_ENABLED = 'loadBalancerEnabled';
+export const NODE_PORT_ADDRESS = 'nodePortAddress';
+export const NODE_PORT_ENABLED = 'nodePortEnabled';
+export const DISABLED_GUEST_SYSTEM_LOGS_ACCESS = 'disabledGuestSystemLogsAccess';
+export const CONFIRM_VM_ACTIONS = 'confirmVMActions';
+export const HIDE_CREDENTIALS_NON_PRIVILEGED = 'hideCredentialsNonPrivileged';
+export const HIDE_YAML_TAB = 'hideYamlTab';
+
+export const ADVANCED_CDROM_FEATURES = 'advancedCDROMFeatures';
+export const TREE_VIEW_FOLDERS = 'treeViewFolders';
+export const PASST_UDN_NETWORK = 'passtUDNNetwork';
+export const VM_TEMPLATES = 'vmTemplates';
+export const AUTO_APPLIED_LABELS = 'autoAppliedLabels';
+export const CONTROL_DEFAULT_VIRTUALIZATION_PERMISSIONS = 'controlDefaultVirtualizationPermissions';
+
+export const FEATURES_CONFIG_MAP_NAME = 'kubevirt-ui-features';
+const FEATURES_ROLE_NAME = 'kubevirt-ui-features-reader';
+const FEATURES_ROLE_BINDING_NAME = 'kubevirt-ui-features-reader-binding';
+
+export const FEATURE_PERSISTENT_RESERVATION = 'persistentReservation';
+export const FEATURE_HCO_PERSISTENT_RESERVATION = 'persistentReservationHCO';
+
+export const FEATURES_CONFIG_MAP_INITIAL_DATA: Record<string, string> = {
+  [AUTO_APPLIED_LABELS]: '[]',
+  [AUTOMATIC_SUBSCRIPTION_ACTIVATION_KEY]: '',
+  [AUTOMATIC_SUBSCRIPTION_ORGANIZATION_ID]: '',
+  [CONFIRM_VM_ACTIONS]: 'false',
+  [DISABLED_GUEST_SYSTEM_LOGS_ACCESS]: 'false',
+  [HIDE_CREDENTIALS_NON_PRIVILEGED]: 'false',
+  [HIDE_YAML_TAB]: 'false',
+  [KUBEVIRT_APISERVER_PROXY]: 'true',
+  [LOAD_BALANCER_ENABLED]: 'false',
+  [NODE_PORT_ADDRESS]: '',
+  [NODE_PORT_ENABLED]: 'false',
+  [CONTROL_DEFAULT_VIRTUALIZATION_PERMISSIONS]: 'false',
+  [PASST_UDN_NETWORK]: 'false',
+  [TREE_VIEW_FOLDERS]: 'false',
+  [VM_TEMPLATES]: 'false',
+};
+
+export const getFeaturesConfigMapInitialState = (namespace: string): IoK8sApiCoreV1ConfigMap => ({
+  data: FEATURES_CONFIG_MAP_INITIAL_DATA,
+  metadata: {
+    name: FEATURES_CONFIG_MAP_NAME,
+    namespace,
+  },
+});
+
+export const getFeaturesRole = (namespace: string): IoK8sApiRbacV1Role => ({
+  metadata: {
+    name: FEATURES_ROLE_NAME,
+    namespace,
+  },
+  rules: [
+    {
+      apiGroups: [''],
+      resourceNames: [FEATURES_CONFIG_MAP_NAME],
+      resources: [ConfigMapModel.plural],
+      verbs: ['list', 'get', 'watch'] as K8sVerb[],
+    },
+  ],
+});
+
+export const getFeaturesRoleBinding = (namespace: string): IoK8sApiRbacV1RoleBinding => ({
+  metadata: {
+    name: FEATURES_ROLE_BINDING_NAME,
+    namespace,
+  },
+  roleRef: {
+    apiGroup: RoleModel.apiGroup,
+    kind: RoleModel.kind,
+    name: FEATURES_ROLE_NAME,
+  },
+  subjects: [
+    {
+      apiGroup: RoleModel.apiGroup,
+      kind: GroupModel.kind,
+      name: 'system:authenticated',
+    },
+  ],
+});

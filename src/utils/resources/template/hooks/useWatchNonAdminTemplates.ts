@@ -1,0 +1,120 @@
+import { useEffect, useMemo, useState } from 'react';
+
+import { OPENSHIFT_NAMESPACE } from '@kubevirt-utils/constants/constants';
+import { useIsAdmin } from '@kubevirt-utils/hooks/useIsAdmin';
+import { modelToGroupVersionKind, ProjectModel } from '@kubevirt-utils/models';
+import { getName } from '@kubevirt-utils/resources/shared';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import useClusterParam from '@multicluster/hooks/useClusterParam';
+import useK8sWatchData from '@multicluster/hooks/useK8sWatchData';
+import { Operator, useK8sWatchResources } from '@openshift-console/dynamic-plugin-sdk';
+import { useHubClusterName } from '@stolostron/multicluster-sdk';
+
+import { TEMPLATE_TYPE_BASE, TEMPLATE_TYPE_LABEL, TEMPLATE_TYPE_VM } from '../utils';
+
+import { TemplateModelGroupVersionKind } from './constants';
+import useWatchNonAdminExternalTemplates from './useWatchNonAdminExternalClusterTemplates';
+
+const useWatchNonAdminTemplates = (): {
+  allowedTemplates: V1Template[];
+  allowedTemplatesError: Error | string;
+  allowedTemplatesLoaded: boolean;
+} => {
+  const isAdmin = useIsAdmin();
+  const [hubClusterName] = useHubClusterName();
+  const cluster = useClusterParam();
+
+  const [allowedTemplates, setAllowedTemplates] = useState<V1Template[]>([]);
+  const [allowedTemplatesLoaded, setAllowedTemplatesLoaded] = useState<boolean>(false);
+  const [allowedTemplatesError, setAllowedTemplatesError] = useState<string>('');
+
+  const isLocalCluster = isEmpty(cluster) || cluster === hubClusterName;
+
+  const [projects, loaded] = useK8sWatchData<K8sResourceCommon[]>({
+    groupVersionKind: modelToGroupVersionKind(ProjectModel),
+    isList: true,
+    namespaced: false,
+  });
+
+  const projectNames = useMemo(() => {
+    const names = new Set(projects?.map((proj) => getName(proj)) ?? []);
+    names.add(OPENSHIFT_NAMESPACE);
+    return [...names];
+  }, [projects]);
+
+  // user has limited access, so we can only get templates from allowed namespaces
+  const allowedResources = useK8sWatchResources<{ [key: string]: V1Template[] }>(
+    Object.fromEntries(
+      loaded && !isAdmin && isLocalCluster
+        ? (projectNames || []).map((name) => [
+            name,
+            {
+              groupVersionKind: TemplateModelGroupVersionKind,
+              isList: true,
+              namespace: name,
+              selector: {
+                matchExpressions: [
+                  {
+                    key: TEMPLATE_TYPE_LABEL,
+                    operator: Operator.In,
+                    values: [TEMPLATE_TYPE_BASE, TEMPLATE_TYPE_VM],
+                  },
+                ],
+              },
+            },
+          ])
+        : [],
+    ),
+  );
+
+  const {
+    externalClusterTemplates,
+    externalClusterTemplatesError,
+    externalClusterTemplatesLoaded,
+  } = useWatchNonAdminExternalTemplates();
+
+  useEffect(() => {
+    if (!isAdmin) {
+      const errorKey = Object.keys(allowedResources).find((key) => allowedResources[key].loadError);
+      if (errorKey) {
+        setAllowedTemplatesError(allowedResources[errorKey].loadError);
+      }
+
+      if (loaded && isEmpty(Object.keys(allowedResources))) {
+        setAllowedTemplatesLoaded(true);
+        return;
+      }
+
+      if (
+        Object.keys(allowedResources).length > 0 &&
+        Object.keys(allowedResources).every((key) => {
+          return allowedResources[key].loaded || allowedResources[key].loadError;
+        })
+      ) {
+        setAllowedTemplates(Object.values(allowedResources).flatMap((resource) => resource.data));
+        setAllowedTemplatesLoaded(true);
+      }
+    }
+  }, [allowedResources, isAdmin, loaded]);
+
+  return useMemo(
+    () => ({
+      allowedTemplates: isLocalCluster ? allowedTemplates : externalClusterTemplates,
+      allowedTemplatesError: isLocalCluster ? allowedTemplatesError : externalClusterTemplatesError,
+      allowedTemplatesLoaded: isLocalCluster
+        ? allowedTemplatesLoaded
+        : externalClusterTemplatesLoaded,
+    }),
+    [
+      allowedTemplates,
+      allowedTemplatesError,
+      allowedTemplatesLoaded,
+      externalClusterTemplates,
+      externalClusterTemplatesError,
+      externalClusterTemplatesLoaded,
+      isLocalCluster,
+    ],
+  );
+};
+
+export default useWatchNonAdminTemplates;

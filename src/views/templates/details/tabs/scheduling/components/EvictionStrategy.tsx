@@ -1,0 +1,42 @@
+import React, { FC, useCallback } from 'react';
+import { TemplateSchedulingGridProps } from 'src/views/templates/details/tabs/scheduling/components/TemplateSchedulingLeftGrid';
+import { getEvictionStrategy } from 'src/views/templates/utils/selectors';
+
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import ShowEvictionStrategy from '@kubevirt-utils/components/EvictionStrategy/ShowEvictionStrategy';
+import { useModal } from '@kubevirt-utils/components/ModalProvider/ModalProvider';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getCluster } from '@multicluster/helpers/selectors';
+
+import EvictionStrategyModal from './EvictionStrategyModal';
+
+const EvictionStrategy: FC<TemplateSchedulingGridProps> = ({ editable, onSubmit, template }) => {
+  const { createModal } = useModal();
+  const { t } = useKubevirtTranslation();
+  const strategy = getEvictionStrategy(template) || t('No eviction strategy');
+  const cluster = getCluster(template);
+
+  const onEditClick = useCallback(
+    () =>
+      createModal(({ isOpen, onClose }) => (
+        <EvictionStrategyModal
+          isOpen={isOpen}
+          onClose={onClose}
+          onSubmit={onSubmit}
+          template={template}
+        />
+      )),
+    [createModal, onSubmit, template],
+  );
+
+  return (
+    <DescriptionItem
+      descriptionData={<ShowEvictionStrategy cluster={cluster} evictionStrategy={strategy} />}
+      descriptionHeader={t('Eviction strategy')}
+      isEdit={editable}
+      onEditClick={onEditClick}
+    />
+  );
+};
+
+export default EvictionStrategy;

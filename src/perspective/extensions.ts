@@ -1,0 +1,42 @@
+import type { Perspective } from '@openshift-console/dynamic-plugin-sdk';
+import type {
+  ConsolePluginBuildMetadata,
+  EncodedExtension,
+} from '@openshift-console/dynamic-plugin-sdk-webpack';
+
+import { PERSPECTIVES } from '../utils/constants/constants';
+import { FLAG_KUBEVIRT_VIRTUALIZATION_NAV } from '../utils/flags/consts';
+
+import { clusterSection } from './navigation/clusterSection';
+import { computeSection } from './navigation/computeSection';
+import { migrationSection } from './navigation/migrationSection';
+import { networkingSection } from './navigation/networkingSection';
+import { storageSection } from './navigation/storageSection';
+import { virtualizationSection } from './navigation/virtualizationSection';
+
+export const exposedModules: ConsolePluginBuildMetadata['exposedModules'] = {
+  perspective: './perspective/perspective.ts',
+};
+
+export const extensions: EncodedExtension[] = [
+  {
+    flags: {
+      disallowed: ['KUBEVIRT_DYNAMIC_ACM'],
+      required: [FLAG_KUBEVIRT_VIRTUALIZATION_NAV],
+    },
+    properties: {
+      icon: { $codeRef: 'perspective.icon' },
+      id: PERSPECTIVES.VIRTUALIZATION,
+      importRedirectURL: { $codeRef: 'perspective.getImportRedirectURL' },
+      landingPageURL: { $codeRef: 'perspective.getVirtualizationLandingPageURL' },
+      name: '%plugin__kubevirt-plugin~Virtualization%',
+    },
+    type: 'console.perspective',
+  } as EncodedExtension<Perspective>,
+  ...virtualizationSection,
+  ...clusterSection,
+  ...migrationSection,
+  ...networkingSection,
+  ...storageSection,
+  ...computeSection,
+];

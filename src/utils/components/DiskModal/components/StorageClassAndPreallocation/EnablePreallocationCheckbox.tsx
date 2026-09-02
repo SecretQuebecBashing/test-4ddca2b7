@@ -1,0 +1,75 @@
+/* eslint-disable */
+import React, { FC } from 'react';
+import { Controller, useFormContext } from 'react-hook-form';
+import { Trans } from 'react-i18next';
+import { Link } from 'react-router';
+
+import { V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import HelpTextIcon from '@kubevirt-utils/components/HelpTextIcon/HelpTextIcon';
+import { documentationURL } from '@kubevirt-utils/constants/documentation';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import PopoverContentWithLightspeedButton from '@lightspeed/components/PopoverContentWithLightspeedButton/PopoverContentWithLightspeedButton';
+import { OLSPromptType } from '@lightspeed/utils/prompts';
+import { Checkbox, Flex, FlexItem, FormGroup, PopoverPosition } from '@patternfly/react-core';
+
+import { V1DiskFormState } from '../../utils/types';
+import { ENABLE_PREALLOCATION_FIELDID, ENALBE_PREACCLOCATION_FIELD } from '../utils/constants';
+
+type EnablePreallocationCheckboxProps = {
+  isDisabled?: boolean;
+  vm: V1VirtualMachine;
+};
+
+const EnablePreallocationCheckbox: FC<EnablePreallocationCheckboxProps> = ({ isDisabled, vm }) => {
+  const { t } = useKubevirtTranslation();
+  const { control } = useFormContext<V1DiskFormState>();
+
+  return (
+    <FormGroup fieldId={ENABLE_PREALLOCATION_FIELDID}>
+      <Flex>
+        <FlexItem>
+          <Controller
+            render={({ field: { onChange, value } }) => (
+              <Checkbox
+                id={ENABLE_PREALLOCATION_FIELDID}
+                isChecked={value}
+                isDisabled={isDisabled}
+                label={t('Enable preallocation')}
+                onChange={(_, checked) => onChange(checked)}
+              />
+            )}
+            control={control}
+            name={ENALBE_PREACCLOCATION_FIELD}
+          />
+        </FlexItem>
+        <FlexItem>
+          <HelpTextIcon
+            bodyContent={(hide) => (
+              <PopoverContentWithLightspeedButton
+                content={
+                  <>
+                    <Trans ns="plugin__kubevirt-plugin">
+                      Refer to the
+                      <Link target="_blank" to={documentationURL.DATAVOLUME_PREALLOCATIONS}>
+                        {' '}
+                        Documentation{' '}
+                      </Link>
+                      or contact your system administrator for more information. Enabling
+                      preallocation is available only for DataVolumes.
+                    </Trans>
+                  </>
+                }
+                hide={hide}
+                obj={vm}
+                promptType={OLSPromptType.ENABLE_PREALLOCATION}
+              />
+            )}
+            position={PopoverPosition.right}
+          />
+        </FlexItem>
+      </Flex>
+    </FormGroup>
+  );
+};
+
+export default EnablePreallocationCheckbox;

@@ -1,0 +1,28 @@
+.consoles-actions {
+  width: 98%;
+  align-self: center;
+  margin: 10px 0;
+  &-inner-flex {
+    justify-content: space-between;
+  }
+}
+
+.virtual-machine-console-page-section {
+  padding-top: 0;
+  height: 85%;
+}
+
+.virtual-machine-console-page {
+  height: 100%;
+}
+
+.console-container {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.console-container-stand-alone {
+  height: calc(100% - 75px);
+}

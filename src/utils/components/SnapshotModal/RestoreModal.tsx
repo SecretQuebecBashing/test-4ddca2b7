@@ -1,0 +1,74 @@
+import React, { FC, useMemo } from 'react';
+import { Trans } from 'react-i18next';
+
+import { VirtualMachineRestoreModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  V1beta1VirtualMachineRestore,
+  V1beta1VirtualMachineSnapshot,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import {
+  TELEMETRY_STATUS,
+  TELEMETRY_UNKNOWN_ERROR_MESSAGE,
+} from '@kubevirt-utils/extensions/telemetry/utils/property-constants';
+import { logVMSnapshotRestored } from '@kubevirt-utils/extensions/telemetry/vm-storage';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getName } from '@kubevirt-utils/resources/shared';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { kubevirtK8sCreate } from '@multicluster/k8sRequests';
+
+import { getVMRestoreSnapshotResource } from '../../../views/virtualmachines/details/tabs/snapshots/utils/helpers';
+
+type RestoreModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  snapshot: V1beta1VirtualMachineSnapshot;
+};
+
+const RestoreModal: FC<RestoreModalProps> = ({ isOpen, onClose, snapshot }) => {
+  const { t } = useKubevirtTranslation();
+
+  const resultRestore = useMemo(() => {
+    const restore: V1beta1VirtualMachineRestore = getVMRestoreSnapshotResource(snapshot);
+    return restore;
+  }, [snapshot]);
+
+  return (
+    <TabModal<V1beta1VirtualMachineRestore>
+      onSubmit={async (obj) => {
+        try {
+          const result = await kubevirtK8sCreate({
+            cluster: getCluster(snapshot),
+            data: obj,
+            model: VirtualMachineRestoreModel,
+          });
+          logVMSnapshotRestored(TELEMETRY_STATUS.SUCCESS);
+          return result;
+        } catch (error) {
+          logVMSnapshotRestored(TELEMETRY_STATUS.FAILURE, {
+            errorMessage: error instanceof Error ? error.message : TELEMETRY_UNKNOWN_ERROR_MESSAGE,
+          });
+          throw error;
+        }
+      }}
+      headerText={t('Restore snapshot')}
+      isOpen={isOpen}
+      obj={resultRestore}
+      onClose={onClose}
+      shouldWrapInForm
+      submitBtnText={t('Restore')}
+    >
+      <Trans t={t}>
+        Are you sure you want to restore {{ vmName: snapshot?.spec?.source?.name }} from snapshot{' '}
+        {{ snapshotName: getName(snapshot) }}?
+        <div className="pf-v6-u-mt-sm">
+          <b>Note: </b>
+          Data from the last snapshot taken will be lost. To prevent losing current data, take
+          another snapshot before restoring from this one.
+        </div>
+      </Trans>
+    </TabModal>
+  );
+};
+
+export default RestoreModal;

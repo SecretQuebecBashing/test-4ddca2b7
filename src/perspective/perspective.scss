@@ -1,0 +1,7 @@
+.pf-v6-c-page__sidebar .pf-v6-c-nav {
+  // first level divider with some padding
+  .oc-perspective-nav > li.pf-v6-c-nav__item + .pf-v6-c-divider {
+    padding-inline-start: var(--pf-t--global--spacer--md);
+    padding-inline-end: var(--pf-t--global--spacer--3xl);
+  }
+}

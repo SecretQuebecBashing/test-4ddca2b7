@@ -1,0 +1,34 @@
+/* eslint-disable */
+import { modelToGroupVersionKind, StorageClassModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { IoK8sApiStorageV1StorageClass } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { EnhancedSelectOptionProps } from '@kubevirt-utils/components/FilterSelect/utils/types';
+import {
+  isDefaultStorageClass,
+  isVirtDefaultStorageClass,
+} from '@kubevirt-utils/hooks/useDefaultStorage/utils';
+import { t } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getAnnotation, getName } from '@kubevirt-utils/resources/shared';
+import { DESCRIPTION_ANNOTATION } from '@kubevirt-utils/resources/vm';
+
+export const getDefaultStorageClass = (
+  storageClasses: IoK8sApiStorageV1StorageClass[],
+): IoK8sApiStorageV1StorageClass =>
+  storageClasses?.find(isVirtDefaultStorageClass) || storageClasses?.find(isDefaultStorageClass);
+
+export const getSCSelectOptions = (
+  storageClasses: IoK8sApiStorageV1StorageClass[],
+): EnhancedSelectOptionProps[] =>
+  storageClasses?.map((sc) => {
+    const scName = getName(sc);
+    const defaultSC = isDefaultStorageClass(sc) ? t('(default) | ') : '';
+    const descriptionAnnotation = getAnnotation(sc, DESCRIPTION_ANNOTATION)?.concat(' | ') || '';
+    const scType = sc?.parameters?.type ? ' | '.concat(sc?.parameters?.type) : '';
+    const description = `${defaultSC}${descriptionAnnotation}${sc?.provisioner}${scType}`;
+
+    return {
+      children: scName,
+      description,
+      groupVersionKind: modelToGroupVersionKind(StorageClassModel),
+      value: scName,
+    };
+  });

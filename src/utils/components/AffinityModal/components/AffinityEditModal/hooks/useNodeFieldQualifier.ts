@@ -1,0 +1,30 @@
+import { useEffect, useState } from 'react';
+
+import { type IoK8sApiCoreV1Node } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+
+import { withOperatorPredicate } from '../../../utils/helpers';
+import { type AffinityLabel } from '../../../utils/types';
+
+export const useNodeFieldQualifier = <T extends AffinityLabel = AffinityLabel>(
+  nodes: IoK8sApiCoreV1Node[],
+  isNodesLoaded: boolean,
+  constraints: T[],
+): IoK8sApiCoreV1Node[] => {
+  const [qualifiedNodes, setQualifiedNodes] = useState([]);
+
+  useEffect(() => {
+    const filteredConstraints = constraints.filter(({ key }) => !!key);
+    if (!isEmpty(filteredConstraints) && isNodesLoaded) {
+      const suitableNodes = [];
+      for (const node of nodes || []) {
+        if (filteredConstraints.every((field) => withOperatorPredicate(node, field))) {
+          suitableNodes.push(node);
+        }
+      }
+      setQualifiedNodes(suitableNodes);
+    }
+  }, [constraints, nodes, isNodesLoaded]);
+
+  return qualifiedNodes;
+};

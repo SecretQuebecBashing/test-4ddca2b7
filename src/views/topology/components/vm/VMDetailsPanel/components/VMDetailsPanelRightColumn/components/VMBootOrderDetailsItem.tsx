@@ -1,0 +1,46 @@
+import React, { FC } from 'react';
+
+import { V1VirtualMachine, V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import BootOrderSummary from '@kubevirt-utils/components/BootOrder/BootOrderSummary';
+import BootOrderModal from '@kubevirt-utils/components/BootOrderModal/BootOrderModal';
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import { useModal } from '@kubevirt-utils/components/ModalProvider/ModalProvider';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getName } from '@kubevirt-utils/resources/shared';
+import { updateBootOrder } from '@virtualmachines/details/tabs/configuration/details/utils/utils';
+
+import '../../../TopologyVMDetailsPanel.scss';
+
+type VMBootOrderDetailsItemProps = {
+  instanceTypeVM: V1VirtualMachine;
+  vm: V1VirtualMachine;
+  vmi: V1VirtualMachineInstance;
+};
+
+const VMBootOrderDetailsItem: FC<VMBootOrderDetailsItemProps> = ({ instanceTypeVM, vm, vmi }) => {
+  const { t } = useKubevirtTranslation();
+  const { createModal } = useModal();
+
+  return (
+    <DescriptionItem
+      onEditClick={() =>
+        createModal((props) => (
+          <BootOrderModal
+            {...props}
+            instanceTypeVM={instanceTypeVM}
+            onSubmit={(updatedVM: V1VirtualMachine) => updateBootOrder(updatedVM)}
+            vm={vm}
+            vmi={vmi}
+          />
+        ))
+      }
+      className="topology-vm-details-panel__item"
+      data-test={`${getName(vm)}-boot-order`}
+      descriptionData={<BootOrderSummary instanceTypeVM={instanceTypeVM} vm={vm} />}
+      descriptionHeader={t('Boot order')}
+      isEdit
+    />
+  );
+};
+
+export default VMBootOrderDetailsItem;

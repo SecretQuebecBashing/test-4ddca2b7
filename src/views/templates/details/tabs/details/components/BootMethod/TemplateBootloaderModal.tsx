@@ -1,0 +1,95 @@
+import React, { type FC, type MouseEvent, useMemo, useState } from 'react';
+import produce from 'immer';
+
+import { BootModeTitles } from '@kubevirt-utils/components/FirmwareBootloaderModal/utils/constants';
+import { type BootloaderOptionValue } from '@kubevirt-utils/components/FirmwareBootloaderModal/utils/types';
+import {
+  getBootloaderFromVM,
+  getBootloaderOptions,
+  getClusterOnlyArchitecture,
+  updatedVMBootMode,
+} from '@kubevirt-utils/components/FirmwareBootloaderModal/utils/utils';
+import FormPFSelect from '@kubevirt-utils/components/FormPFSelect/FormPFSelect';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import useHcoWorkloadArchitectures from '@kubevirt-utils/hooks/useHcoWorkloadArchitectures';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getTemplateVirtualMachineObject, type Template } from '@kubevirt-utils/resources/template';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { FormGroup, SelectOption } from '@patternfly/react-core';
+
+type TemplateBootloaderModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (updatedVM: Template) => Promise<Template | void>;
+  template: Template;
+};
+
+const TemplateBootloaderModal: FC<TemplateBootloaderModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  template,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const vm = getTemplateVirtualMachineObject(template);
+  const [clusterWorkloadArchitectures] = useHcoWorkloadArchitectures(getCluster(vm));
+  const clusterOnlyArchitecture = getClusterOnlyArchitecture(clusterWorkloadArchitectures);
+  const [selectedFirmwareBootloader, setSelectedFirmwareBootloader] =
+    useState<BootloaderOptionValue>(() =>
+      getBootloaderFromVM(vm, undefined, clusterOnlyArchitecture),
+    );
+
+  const bootloaderOptions = useMemo(
+    () => getBootloaderOptions(vm, clusterOnlyArchitecture),
+    [vm, clusterOnlyArchitecture],
+  );
+
+  const handleChange = (
+    event: MouseEvent<HTMLSelectElement>,
+    value: BootloaderOptionValue,
+  ): void => {
+    event.preventDefault();
+    setSelectedFirmwareBootloader(value);
+  };
+
+  const updatedTemplate = useMemo(() => {
+    return produce<Template>(template, (templateDraft: Template) => {
+      const vmDraft = getTemplateVirtualMachineObject(templateDraft);
+      const updatedVM = updatedVMBootMode(
+        vmDraft,
+        selectedFirmwareBootloader,
+        clusterOnlyArchitecture,
+      );
+
+      vmDraft.spec.template.spec.domain = updatedVM.spec.template.spec.domain;
+    });
+  }, [selectedFirmwareBootloader, template, clusterOnlyArchitecture]);
+
+  return (
+    <TabModal
+      headerText={t('Boot mode')}
+      isOpen={isOpen}
+      obj={updatedTemplate}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      shouldWrapInForm
+    >
+      <FormGroup fieldId="template-firmware-bootloader" label={t('Boot mode')}>
+        <FormPFSelect
+          onSelect={handleChange}
+          selected={selectedFirmwareBootloader}
+          selectedLabel={t(BootModeTitles[selectedFirmwareBootloader])}
+          toggleProps={{ isFullWidth: true }}
+        >
+          {bootloaderOptions.map(({ description, title, value }) => (
+            <SelectOption description={t(description)} key={value} value={value}>
+              {t(title)}
+            </SelectOption>
+          ))}
+        </FormPFSelect>
+      </FormGroup>
+    </TabModal>
+  );
+};
+
+export default TemplateBootloaderModal;

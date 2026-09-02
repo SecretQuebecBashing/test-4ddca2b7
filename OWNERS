@@ -1,0 +1,28 @@
+# DO NOT EDIT; this file is auto-generated using https://github.com/openshift/ci-tools.
+# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
+
+approvers:
+  - vojtechszocs
+  - pcbailey
+  - metalice
+  - avivtur
+  - upalatucci
+  - adamviktora
+  - rszwajko
+  - lkladnit
+  - galkremer1
+reviewers:
+  - metalice
+  - pcbailey
+  - avivtur
+  - vojtechszocs
+  - upalatucci
+  - adamviktora
+  - rszwajko
+  - lkladnit
+  - batyana
+  - aviavissar
+  - benbassatido
+  - mayarub
+  - bmaio-redhat
+  - Pedro-S-Abreu

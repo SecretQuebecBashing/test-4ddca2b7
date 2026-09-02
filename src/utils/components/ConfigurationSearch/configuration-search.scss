@@ -1,0 +1,13 @@
+.ConfigurationSearch {
+  &--main {
+    &__no-results {
+      flex-direction: column;
+      > * {
+        margin-top: var(--pf-t--global--spacer--md);
+      }
+      > :last-child {
+        margin-bottom: var(--pf-t--global--spacer--md);
+      }
+    }
+  }
+}

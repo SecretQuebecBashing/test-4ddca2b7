@@ -1,0 +1,9 @@
+# Security-sensitive Cursor AI configuration. See AI_README.md.
+# Also applies to root files: .coderabbit.yaml, AGENTS.md, .cursorrules
+
+approvers:
+  - upalatucci
+  - metalice
+  - galkremer1
+options:
+  no_parent_owners: true

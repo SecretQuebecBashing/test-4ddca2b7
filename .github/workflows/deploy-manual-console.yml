@@ -1,0 +1,349 @@
+name: Deploy Manual Console
+run-name: "${{ inputs.action == 'teardown' && 'Teardown' || 'Deploy' }} Manual Console [${{ inputs.cluster_name }}] @ ${{ inputs.pr_number && format('PR#{0}', inputs.pr_number) || inputs.branch }}"
+
+# Deploys a standalone, OAuth-protected console + kubevirt-plugin stack to an
+# existing hot cluster for manual UI testing. Entirely separate from the E2E
+# path: it builds its own in-cluster plugin image, uses its own trigger
+# ConfigMap/action, and does not touch the CNV-managed console, HCO, or SSP.
+#
+# cluster-check below provisions the target cluster via "IBM Cloud Hot
+# Cluster Setup" (ibmc-cluster-setup.yml) if it isn't already up -- without
+# that, dispatching against a cluster with no matching ARC runner would
+# leave the deploy job hanging until its own timeout instead of failing
+# fast or self-provisioning.
+#
+# Dispatch ref matters: the dispatch branch/ref (github.ref) is what gets
+# checked out for CI scripts, separately from "branch"/pr_number below,
+# which only selects the plugin source to build. Dispatch from main (or
+# another branch carrying current ci-scripts/manual-console/) even when
+# deploying an old release branch's plugin.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: >-
+          "deploy" provisions a new instance for the given PR/branch;
+          "teardown" removes an existing one. For teardown, only
+          pr_number/branch and cluster_name matter -- other inputs are
+          ignored.
+        required: false
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - teardown
+      branch:
+        description: >-
+          Git branch or ref to build the kubevirt-plugin image from (can be
+          an old release branch). Ignored when pr_number is set. Dispatch
+          this workflow itself from main/current -- see the header comment.
+        required: true
+        default: main
+        type: string
+      pr_number:
+        description: 'PR number to deploy instead (works with PRs from forks -- the OWNERS-listed author check below still applies). Takes precedence over "branch" when set.'
+        required: false
+        default: ''
+        type: string
+      cluster_name:
+        description: ARC runner label / hot cluster name (provisioned automatically if not already up)
+        required: true
+        default: kubevirt-plugin-ci
+        type: string
+      infrastructure_type:
+        description: Infrastructure type of the target cluster (used to provision if not already up)
+        required: false
+        default: vpc
+        type: choice
+        options:
+          - vpc
+          - classic
+          - ipi
+      openshift_version:
+        description: 'OpenShift version to provision if the cluster is not already up (e.g. 4.21_openshift)'
+        required: false
+        default: '4.21_openshift'
+        type: string
+      cnv_channel:
+        description: CNV OLM subscription channel to install if the cluster is not already up
+        required: false
+        default: stable
+        type: string
+      cnv_pin_version:
+        description: |
+          "<major>.<minor>" to pin CNV to if the cluster is not already up
+          (e.g. for a release branch under test). Leave empty to install
+          whatever cnv_channel currently resolves to.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Persistent environment: never cancel an in-flight run, since that could
+# leave the manual console mid-operation. Scoped by pr_number/branch (not
+# just cluster_name) -- each PR gets its own instance now, so distinct PRs
+# no longer queue behind each other.
+concurrency:
+  group: deploy-manual-console-${{ inputs.cluster_name }}-${{ inputs.pr_number || inputs.branch }}
+  cancel-in-progress: false
+
+env:
+  CI_ENV_NS: ci-env
+  MANUAL_CONSOLE_NS: manual-console
+
+jobs:
+  # Shared by deploy and teardown so both address the same instance:
+  # pr-<number> when pr_number is set, otherwise a sanitized/truncated
+  # branch name (DNS-safe once "manual-console-" is prefixed).
+  instance-key:
+    name: Compute Instance Key
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      key: ${{ steps.compute.outputs.key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Compute instance key
+        id: compute
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          BRANCH: ${{ inputs.branch }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/compute-instance-key.ts
+
+  # Only runs for the "deploy" action when pr_number is set (deploying a PR,
+  # possibly from a fork). Mirrors hot-cluster-e2e.yml's check-trust: only PR
+  # authors listed in OWNERS can have their PR deployed here, with no
+  # "ok-to-test" escape hatch -- push the branch directly and use "branch"
+  # instead if needed. Teardown skips this: it doesn't build the PR's code,
+  # and /cleanup-manual-console already gates who can trigger it.
+  resolve-pr:
+    name: Resolve PR
+    if: inputs.pr_number != '' && inputs.action != 'teardown'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head-sha }}
+      head_repo: ${{ steps.resolve.outputs.head-repo }}
+    steps:
+      # Needed to resolve the local composite action below -- its own
+      # internal checkout (pinned to the default branch) is what actually
+      # matters for reading OWNERS safely.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve PR and verify author is a trusted repo owner
+        id: resolve
+        uses: ./.github/actions/hot-cluster/resolve-trusted-pr
+        with:
+          pr-number: ${{ inputs.pr_number }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Probes the target cluster and provisions it if it isn't up yet -- same
+  # reusable workflow hot-cluster-e2e.yml already uses for this. Gated on
+  # resolve-pr the same way deploy is below -- an untrusted PR author must
+  # not be able to trigger real cluster provisioning (secrets: inherit)
+  # just because deploy itself will later be skipped; skipped resolve-pr
+  # (the plain "branch" input path, no pr_number) still runs this normally.
+  # run_health_check stays false -- this isn't an E2E gating context.
+  cluster-check:
+    name: Cluster Check
+    needs: resolve-pr
+    if: always() && needs.resolve-pr.result != 'failure' && inputs.action != 'teardown'
+    uses: ./.github/workflows/hot-cluster-check.yml
+    with:
+      cluster_name: ${{ inputs.cluster_name }}
+      infrastructure_type: ${{ inputs.infrastructure_type }}
+      openshift_version: ${{ inputs.openshift_version }}
+      cnv_channel: ${{ inputs.cnv_channel }}
+      cnv_pin_version: ${{ inputs.cnv_pin_version }}
+      branch_name: ${{ inputs.branch }}
+    secrets: inherit
+
+  # if: always() so this still runs when resolve-pr was skipped (no
+  # pr_number given -- the plain "branch" input path), but not when
+  # resolve-pr ran and failed the trust check, or the cluster never became
+  # ready (cluster-check provisions it if needed; a cluster already up
+  # returns ready almost immediately, so this adds no delay for the common
+  # case).
+  deploy:
+    name: Deploy Manual Console
+    needs: [instance-key, resolve-pr, cluster-check]
+    if: |
+      always() && inputs.action != 'teardown' &&
+      needs.instance-key.result == 'success' &&
+      needs.resolve-pr.result != 'failure' &&
+      needs.cluster-check.outputs.cluster_ready == 'true'
+    runs-on: ${{ inputs.cluster_name }}
+    timeout-minutes: 30
+    steps:
+      # Two checkouts, deliberately kept separate: (1) this repo's own
+      # dispatch ref into $GITHUB_WORKSPACE, so CI scripts here always
+      # match the workflow YAML that's actually running; (2) the plugin
+      # source to actually build -- PR head, or inputs.branch -- into
+      # plugin-src/, used only as setup-plugin-image.sh's BUILD_DIR below.
+      # allow-unsafe-pr-checkout is not needed for either: actions/checkout
+      # only enforces that guard for pull_request_target/workflow_run
+      # triggers, not workflow_dispatch. The OWNERS check above (resolve-pr)
+      # is this workflow's actual trust gate for fork PRs.
+      - name: Checkout workflow scripts
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout plugin source
+        uses: actions/checkout@v7
+        with:
+          # Falls back to the default repository (github.repository, actions/
+          # checkout's own default) both for the plain "branch" input path
+          # and if the PR's source repo was deleted -- head_sha in that case
+          # is a fork commit unreachable from this repo anyway, so checkout
+          # would fail regardless, but this at least avoids literally passing
+          # the '(source repository deleted)' sentinel as a repository name.
+          repository: ${{ (needs.resolve-pr.outputs.head_repo != '' && needs.resolve-pr.outputs.head_repo != '(source repository deleted)') && needs.resolve-pr.outputs.head_repo || github.repository }}
+          ref: ${{ needs.resolve-pr.outputs.head_sha || inputs.branch }}
+          path: plugin-src
+          persist-credentials: false
+
+      - name: Install infra script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Log environment summary
+        env:
+          BRANCH: ${{ inputs.branch }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_REPO: ${{ needs.resolve-pr.outputs.head_repo }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+          CLUSTER_NAME: ${{ inputs.cluster_name }}
+          INSTANCE_KEY: ${{ needs.instance-key.outputs.key }}
+          INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type }}
+          ACTOR: ${{ github.actor }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/log-manual-console-env.ts
+
+      - name: Build kubevirt-plugin image in-cluster
+        id: build
+        env:
+          INSTANCE_KEY: ${{ needs.instance-key.outputs.key }}
+          MANUAL_CONSOLE_NS: ${{ env.MANUAL_CONSOLE_NS }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/build-plugin-image.ts
+
+      - name: Generate manual console password
+        id: creds
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/generate-password.ts
+
+      - name: Create short-lived credentials Secret
+        id: secret
+        env:
+          MANUAL_CONSOLE_PASSWORD: ${{ steps.creds.outputs.password }}
+          SECRET_NAME: manual-console-creds-${{ github.run_id }}
+          CI_ENV_NS: ${{ env.CI_ENV_NS }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/create-credentials-secret.ts
+
+      - name: Provision manual console
+        id: deploy
+        uses: ./.github/actions/manual-console-request
+        with:
+          plugin-image: ${{ steps.build.outputs.image }}
+          test-namespace: ${{ env.MANUAL_CONSOLE_NS }}
+          configmap-name: manual-console-${{ needs.instance-key.outputs.key }}
+          helm-release: manual-console-${{ needs.instance-key.outputs.key }}
+          ci-env-namespace: ${{ env.CI_ENV_NS }}
+          htpasswd-user: manual-console-${{ needs.instance-key.outputs.key }}
+          htpasswd-secret-name: ${{ steps.secret.outputs.name }}
+
+      - name: Send manual console credentials to Slack
+        if: always() && steps.deploy.outcome == 'success'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CONSOLE_URL: ${{ steps.deploy.outputs.console-route }}
+          MANUAL_CONSOLE_PASSWORD: ${{ steps.creds.outputs.password }}
+          MANUAL_CONSOLE_USER: manual-console-${{ needs.instance-key.outputs.key }}
+          ACTOR: ${{ github.actor }}
+          BRANCH: ${{ inputs.branch }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_REPO: ${{ needs.resolve-pr.outputs.head_repo }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/send-manual-console-slack.ts
+
+      - name: Write final job summary
+        if: always()
+        env:
+          CONSOLE_URL: ${{ steps.deploy.outputs.console-route }}
+          MODE: deploy
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/write-deploy-summary.ts
+
+      # Defense-in-depth: ci-env-controller already deletes this Secret once
+      # it reads the password during provisioning, but only if it gets that
+      # far (e.g. not if cluster discovery or the htpasswd upsert fails
+      # first, or the controller pod is unavailable). Without this, a failed
+      # or timed-out provisioning run would leave a Secret with a plaintext
+      # password behind indefinitely. if: always() guarantees this runs on
+      # every exit path, including job failure; --ignore-not-found makes it
+      # a no-op on the normal path where the controller already deleted it.
+      - name: Clean up credentials Secret
+        if: always()
+        env:
+          SECRET_NAME: manual-console-creds-${{ github.run_id }}
+          CI_ENV_NS: ${{ env.CI_ENV_NS }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/cleanup-credentials-secret.ts
+
+  # Triggered by /cleanup-manual-console. Runs on the target cluster's own
+  # runner (same as deploy) and just flips the trigger ConfigMap's
+  # desired-state to "absent" -- ci-env-controller's existing reconciliation
+  # loop (also used by the TTL reaper) does the actual cleanup from there.
+  teardown:
+    name: Teardown Manual Console
+    needs: instance-key
+    if: inputs.action == 'teardown' && needs.instance-key.result == 'success'
+    runs-on: ${{ inputs.cluster_name }}
+    timeout-minutes: 10
+    env:
+      CLUSTER_NAME: ${{ inputs.cluster_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install infra script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Mark manual console for teardown
+        id: teardown
+        env:
+          CM_NAME: manual-console-${{ needs.instance-key.outputs.key }}
+          CI_ENV_NS: ${{ env.CI_ENV_NS }}
+          CLUSTER_NAME: ${{ inputs.cluster_name }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/mark-manual-console-teardown.ts
+
+      - name: Write job summary
+        if: always()
+        env:
+          FOUND: ${{ steps.teardown.outputs.found }}
+          INSTANCE_KEY: ${{ needs.instance-key.outputs.key }}
+          CI_ENV_NS: ${{ env.CI_ENV_NS }}
+          CLUSTER_NAME: ${{ inputs.cluster_name }}
+          ACTOR: ${{ github.actor }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/write-teardown-summary.ts

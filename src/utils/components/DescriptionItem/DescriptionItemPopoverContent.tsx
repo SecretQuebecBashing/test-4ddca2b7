@@ -1,0 +1,50 @@
+import React, { type FC, type ReactNode } from 'react';
+
+import { SPACE_SYMBOL } from '@kubevirt-utils/constants/constants';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import PopoverContentWithLightspeedButton from '@lightspeed/components/PopoverContentWithLightspeedButton/PopoverContentWithLightspeedButton';
+import { type OLSPromptType } from '@lightspeed/utils/prompts';
+import { type K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
+
+type DescriptionItemPopoverContentProps = {
+  bodyContent?: ReactNode;
+  breadcrumb?: string;
+  hide?: () => void;
+  moreInfoURL?: string;
+  olsObj?: K8sResourceCommon;
+  promptType?: OLSPromptType;
+};
+
+const DescriptionItemPopoverContent: FC<DescriptionItemPopoverContentProps> = ({
+  bodyContent,
+  breadcrumb,
+  hide,
+  moreInfoURL,
+  olsObj,
+  promptType,
+}) => {
+  const { t } = useKubevirtTranslation();
+
+  return (
+    <PopoverContentWithLightspeedButton
+      breadcrumb={breadcrumb}
+      content={
+        <>
+          {bodyContent}
+          {moreInfoURL && (
+            <>
+              {SPACE_SYMBOL}
+              {t('More info: ')}
+              <a href={moreInfoURL}>{moreInfoURL}</a>
+            </>
+          )}
+        </>
+      }
+      hide={hide}
+      obj={olsObj}
+      promptType={promptType}
+    />
+  );
+};
+
+export default DescriptionItemPopoverContent;

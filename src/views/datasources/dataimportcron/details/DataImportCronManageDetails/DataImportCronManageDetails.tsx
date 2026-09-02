@@ -1,0 +1,83 @@
+import React, { FC } from 'react';
+
+import {
+  V1beta1DataImportCron,
+  V1beta1DataSource,
+} from '@kubevirt-ui-ext/kubevirt-api/containerized-data-importer';
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import MutedTextSpan from '@kubevirt-utils/components/MutedTextSpan/MutedTextSpan';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import {
+  ClipboardCopy,
+  DescriptionList,
+  DescriptionListDescription,
+  DescriptionListGroup,
+  DescriptionListTerm,
+} from '@patternfly/react-core';
+
+import { isDataImportCronAutoUpdated, isDataResourceOwnedBySSP } from '../../../utils';
+
+import './DataImportCronManageDetails.scss';
+
+type DataImportCronManageDetailsProps = {
+  dataImportCron: V1beta1DataImportCron;
+  dataSource: V1beta1DataSource;
+  onEditClick: () => void;
+};
+
+export const DataImportCronManageDetails: FC<DataImportCronManageDetailsProps> = ({
+  dataImportCron,
+  dataSource,
+  onEditClick,
+}) => {
+  const { t } = useKubevirtTranslation();
+
+  const source = dataImportCron?.spec?.template.spec?.source?.registry?.url;
+  const importsToKeep = dataImportCron?.spec?.importsToKeep?.toString() || t('3 (default)');
+  const isAutoUpdated = isDataImportCronAutoUpdated(dataSource, dataImportCron);
+  const isOwnedBySSP = isDataResourceOwnedBySSP(dataImportCron);
+
+  return (
+    <DescriptionItem
+      descriptionData={
+        <DescriptionList className="kv-dataimportcron-managed-details">
+          <DescriptionItem
+            descriptionData={isAutoUpdated ? t('On') : t('Off')}
+            descriptionHeader={t('Automatic updates')}
+          />
+          <DescriptionItem
+            descriptionData={source ?? <MutedTextSpan text={t('Not available')} />}
+            descriptionHeader={t('Source')}
+          />
+          <DescriptionItem
+            descriptionData={importsToKeep}
+            descriptionHeader={t('Retain revisions')}
+          />
+          <DescriptionItem
+            descriptionData={
+              <DescriptionList isHorizontal>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>{t('Cron expression')}</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    <ClipboardCopy
+                      clickTip={t('Copied')}
+                      hoverTip={t('Copy to clipboard')}
+                      isReadOnly
+                    >
+                      {dataImportCron?.spec?.schedule}
+                    </ClipboardCopy>
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              </DescriptionList>
+            }
+            descriptionHeader={t('Scheduling settings')}
+          />
+        </DescriptionList>
+      }
+      descriptionHeader={t('Automatic update and scheduling')}
+      isEdit={!isOwnedBySSP}
+      onEditClick={onEditClick}
+      showEditOnTitle
+    />
+  );
+};

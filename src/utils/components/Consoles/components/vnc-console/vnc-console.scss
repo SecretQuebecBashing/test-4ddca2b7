@@ -1,0 +1,40 @@
+.vnc-container {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+
+  div:first-child {
+    // vnc console use element as ref and inline styling on element to control auto resizing, we need to use important in this case.
+    background-color: transparent !important;
+    justify-content: center;
+  }
+  canvas {
+    margin: 0 !important;
+  }
+}
+
+.console-overview .vnc-container {
+  canvas {
+    cursor: auto !important;
+  }
+}
+
+.hide {
+  display: none;
+}
+.vnc-screen-tabs {
+  display: flex;
+  justify-content: center;
+  margin-bottom: -5px;
+}
+.vnc-actions-disconnect-button {
+  grid-area: actions-extra;
+  display: inline-flex;
+  justify-self: flex-end;
+}
+
+.vnc-paste-button {
+  margin-left: var(--pf-t--global--spacer--sm);
+  margin-right: var(--pf-t--global--spacer--sm);
+}

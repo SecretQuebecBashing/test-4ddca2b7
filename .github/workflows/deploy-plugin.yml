@@ -1,0 +1,203 @@
+name: Deploy Plugin (Manual Console Quick Redeploy)
+run-name: "Deploy Plugin [${{ inputs.cluster_name }}] @ ${{ inputs.pr_number && format('PR#{0}', inputs.pr_number) || inputs.branch }}"
+
+# Lightweight companion to deploy-manual-console.yml for quickly
+# iterating on UI changes against an already-deployed manual console: builds
+# a fresh plugin image and re-provisions the same per-instance release,
+# without repeating the full job summary / Slack notification of the main
+# workflow. Use deploy-manual-console.yml for the first deploy, or whenever
+# you need a fresh URL/credentials reminder.
+#
+# Prerequisites: same as deploy-manual-console.yml -- the target cluster must
+# already be provisioned, and a manual console for this pr_number/branch
+# should already exist (though this workflow works standalone too, it will
+# just deploy a fresh instance under the same instance-key naming).
+#
+# Dispatch ref matters, same as deploy-manual-console.yml: dispatch this
+# workflow itself from main (or another ref carrying current
+# ci-scripts/manual-console/) even when "branch" below points at an old
+# release branch -- the "Checkout workflow scripts" step has no ref:
+# override, so it always uses whatever ref you pick in the dispatch UI.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: >-
+          Git branch or ref to build the kubevirt-plugin image from (can be
+          an old release branch). Ignored when pr_number is set.
+        required: true
+        default: main
+        type: string
+      pr_number:
+        description: >-
+          PR number to redeploy instead (works with PRs from forks -- the
+          OWNERS-listed author check below still applies). Takes precedence
+          over "branch" when set. Must match the pr_number the console was
+          originally deployed with, or this targets a different instance.
+        required: false
+        default: ''
+        type: string
+      cluster_name:
+        description: ARC runner label / hot cluster name (must already be provisioned)
+        required: true
+        default: kubevirt-plugin-ci
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: deploy-manual-console-${{ inputs.cluster_name }}-${{ inputs.pr_number || inputs.branch }}
+  cancel-in-progress: false
+
+env:
+  CI_ENV_NS: ci-env
+  MANUAL_CONSOLE_NS: manual-console
+
+jobs:
+  # Mirrors deploy-manual-console.yml's instance-key job -- keep both in
+  # sync. Kept inline here (not factored into a reusable workflow) since
+  # this is meant to stay a small, single-purpose quick-redeploy path.
+  instance-key:
+    name: Compute Instance Key
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      key: ${{ steps.compute.outputs.key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Compute instance key
+        id: compute
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          BRANCH: ${{ inputs.branch }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/compute-instance-key.ts
+
+  # Same OWNERS trust gate deploy-manual-console.yml uses -- required here
+  # too, since this job builds arbitrary PR source on a self-hosted runner.
+  resolve-pr:
+    name: Resolve PR
+    if: inputs.pr_number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head-sha }}
+      head_repo: ${{ steps.resolve.outputs.head-repo }}
+    steps:
+      # Needed to resolve the local composite action below -- its own
+      # internal checkout (pinned to the default branch) is what actually
+      # matters for reading OWNERS safely.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve PR and verify author is a trusted repo owner
+        id: resolve
+        uses: ./.github/actions/hot-cluster/resolve-trusted-pr
+        with:
+          pr-number: ${{ inputs.pr_number }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  redeploy:
+    name: Redeploy Plugin
+    needs: [instance-key, resolve-pr]
+    if: always() && needs.instance-key.result == 'success' && needs.resolve-pr.result != 'failure'
+    runs-on: ${{ inputs.cluster_name }}
+    timeout-minutes: 20
+    steps:
+      # Two checkouts, deliberately kept separate -- see
+      # deploy-manual-console.yml's equivalent checkout steps for why.
+      #   1. This repo's own dispatch ref into $GITHUB_WORKSPACE, for CI
+      #      scripts (e.g. setup-plugin-image.sh) that may not exist on
+      #      inputs.branch.
+      #   2. The plugin source to actually build -- PR head, or
+      #      inputs.branch -- into plugin-src/, used only as
+      #      setup-plugin-image.sh's BUILD_DIR below.
+      - name: Checkout workflow scripts
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout plugin source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ (needs.resolve-pr.outputs.head_repo != '' && needs.resolve-pr.outputs.head_repo != '(source repository deleted)') && needs.resolve-pr.outputs.head_repo || github.repository }}
+          ref: ${{ needs.resolve-pr.outputs.head_sha || inputs.branch }}
+          path: plugin-src
+          persist-credentials: false
+
+      - name: Install infra script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Build kubevirt-plugin image in-cluster
+        id: build
+        env:
+          INSTANCE_KEY: ${{ needs.instance-key.outputs.key }}
+          MANUAL_CONSOLE_NS: ${{ env.MANUAL_CONSOLE_NS }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/build-plugin-image.ts
+
+      # provision() always re-runs the htpasswd/OAuth ensure step regardless
+      # of whether credentials changed, so a fresh Secret is still required
+      # here -- this keeps ci-env-controller's logic simple (one code path)
+      # at the cost of a new (unused, if unchanged) password each redeploy.
+      - name: Generate manual console password
+        id: creds
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/generate-password.ts
+
+      - name: Create short-lived credentials Secret
+        id: secret
+        env:
+          MANUAL_CONSOLE_PASSWORD: ${{ steps.creds.outputs.password }}
+          SECRET_NAME: manual-console-creds-${{ github.run_id }}
+          CI_ENV_NS: ${{ env.CI_ENV_NS }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/create-credentials-secret.ts
+
+      - name: Redeploy manual console
+        id: deploy
+        uses: ./.github/actions/manual-console-request
+        with:
+          plugin-image: ${{ steps.build.outputs.image }}
+          test-namespace: ${{ env.MANUAL_CONSOLE_NS }}
+          configmap-name: manual-console-${{ needs.instance-key.outputs.key }}
+          helm-release: manual-console-${{ needs.instance-key.outputs.key }}
+          ci-env-namespace: ${{ env.CI_ENV_NS }}
+          htpasswd-user: manual-console-${{ needs.instance-key.outputs.key }}
+          htpasswd-secret-name: ${{ steps.secret.outputs.name }}
+
+      # ci-env-controller re-applies the htpasswd user on every provision, so
+      # the previous login password is no longer valid after this step --
+      # a fresh reminder must be sent, otherwise the user is silently locked
+      # out with no way to discover the new password.
+      - name: Send updated credentials to Slack
+        if: always() && steps.deploy.outcome == 'success'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CONSOLE_URL: ${{ steps.deploy.outputs.console-route }}
+          MANUAL_CONSOLE_PASSWORD: ${{ steps.creds.outputs.password }}
+          MANUAL_CONSOLE_USER: manual-console-${{ needs.instance-key.outputs.key }}
+          ACTOR: ${{ github.actor }}
+          BRANCH: ${{ inputs.branch }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/send-redeploy-slack.ts
+
+      - name: Write job summary
+        if: always()
+        env:
+          CONSOLE_URL: ${{ steps.deploy.outputs.console-route }}
+          MODE: redeploy
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/write-deploy-summary.ts

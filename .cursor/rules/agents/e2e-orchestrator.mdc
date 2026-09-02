@@ -1,0 +1,262 @@
+---
+description: E2E Test Orchestrator — coordinates QE automation for the Playwright test suite
+alwaysApply: false
+---
+
+# E2E Test Orchestrator
+
+Coordinates QE automation for the Playwright test suite that lives under `playwright/` in this repo.
+
+## Intent Routing
+
+| Intent | Command / Rule |
+|--------|---------------|
+| Run tests, analyze failures, fix broken tests, re-run | `/test-fix` |
+| Implement E2E tests for Jira tickets | `/create-test` |
+| Assess coverage gaps and generate proposals | `/coverage-analysis` |
+| Validate a ticket with recorded video evidence (requires Playwright MCP) | `/test-and-record` |
+| Explore live UI to find bugs in test-covered workflows | `/bug-hunt` |
+| Write or review Playwright tests (general) | `playwright-testing.mdc` |
+| QA edge case analysis | `qe-agent.mdc` |
+
+## Test Structure
+
+Tests are organized by tiers. Each tier maps to a Playwright project and has its own test directory.
+
+| Tier | Directory | Fixture | Project | Tags |
+|------|-----------|---------|---------|------|
+| Gating | `tests/gating/` | `gating-fixture` | `Gating` | `@gating` |
+| Tier 1 | `tests/tier1/<feature>/` | Per-feature fixture | `Tier1` | `@tier1` |
+| Tier 2 | `tests/tier2/<feature>/` | Per-feature fixture | `Tier2` | `@tier2` |
+| Settings | `tests/settings/` | `settings-fixture` | `Settings` | `@cnv-settings` |
+
+### Architecture
+
+```
+Spec (.spec.ts) → imports { test, expect } from feature fixture
+  ↓
+Feature fixture → extends baseTest, provides page objects
+  ↓
+Page objects (page-objects/) → extend BasePage/PageCommons, compose components
+  ↓
+Components (components/) → extend BaseComponent, contain locators + interactions
+  ↓
+OcClient (clients/oc-cli-client.ts) → oc CLI → K8s API (RBAC-limited in HC mode)
+RequestContextClient (clients/request-context-client.ts) → console proxy → K8s API (admin perms)
+```
+
+### Key Components
+
+- **`baseTest`** (`scenario-test-fixture.ts`) — root fixture providing `ocClient`, `utils`, `testConfig`, auto-fixtures, cleanup
+- **Per-feature fixtures** (`fixtures/<feature>-fixture.ts`) — extend `baseTest`, add page objects
+- **Page objects** (`page-objects/`) — extend `BasePage` or `PageCommons`, compose components, expose high-level methods
+- **Components** (`components/`) — extend `BaseComponent`, contain locators and interaction methods for UI sections
+- **OcClient** (`clients/oc-cli-client.ts`) — `oc` CLI wrapper with handler delegates; RBAC-limited in HC mode (see RBAC section below)
+- **RequestContextClient** (`clients/request-context-client.ts`) — HTTP client through the console proxy; has admin-level permissions; use for operations denied to `OcClient` in HC mode
+- **Allure constants** (`data-models/allure-constants.ts`) — suite/feature/tag constants for reporting
+- **Rule engine** — global setup/teardown via `project-dependencies/`
+
+### Folder Structure
+
+```
+playwright/
+├── tests/
+│   ├── gating/                    # Gating specs
+│   ├── tier1/<feature>/           # Tier 1 specs (grouped by feature)
+│   ├── tier2/<feature>/           # Tier 2 specs (grouped by feature)
+│   └── settings/                  # Settings specs
+├── src/
+│   ├── components/                # UI components (extend BaseComponent)
+│   │   ├── shared/                # Base classes
+│   │   ├── overview/              # Overview area
+│   │   ├── vm/                    # VM detail area
+│   │   └── ...
+│   ├── page-objects/              # Page objects (extend BasePage/PageCommons)
+│   │   ├── vm/                    # VM pages
+│   │   ├── overview/              # Overview pages
+│   │   ├── settings/              # Settings pages
+│   │   ├── cluster/               # Cluster-level pages
+│   │   └── ...
+│   ├── fixtures/                  # Per-feature test fixtures
+│   │   ├── scenario-test-fixture.ts  # Base fixture (baseTest)
+│   │   ├── gating-fixture.ts
+│   │   ├── checkups-fixture.ts
+│   │   ├── vm-tabs-fixture.ts
+│   │   ├── settings-fixture.ts
+│   │   └── ...
+│   ├── clients/                   # API clients
+│   │   ├── oc-cli-client.ts       # OcClient — oc CLI wrapper (RBAC-limited in HC mode)
+│   │   ├── oc-handlers/           # OcClient handler classes (vm, namespace, template, etc.)
+│   │   └── request-context-client.ts  # RequestContextClient — HTTP via console proxy (admin perms)
+│   ├── data-models/               # Constants, types, allure metadata
+│   ├── data-factories/            # Test data generators
+│   └── utils/                     # Env vars, test config, random names
+├── project-dependencies/          # Global setup/teardown + rule engine
+├── playwright.config.ts           # Projects: Gating, Tier1, Tier2, Settings
+├── playwright-runner.sh           # Local runner script
+└── playwright-runner-hc-e2e.sh    # CI runner script
+```
+
+## Spec File Patterns
+
+### Required Structure
+
+```typescript
+import { ADMIN_ONLY_TAG, T1, T1_TAG } from '@/data-models/allure-constants';
+import { expect, test } from '@/fixtures/<feature>-fixture';
+
+const SUITE = 'Feature Name';
+
+test.describe(SUITE, { tag: [T1_TAG, '@tier1-feature-area'] }, () => {
+  test.beforeEach(async ({ somePage }) => {
+    await somePage.navigateToFeatureViaUI();
+  });
+
+  test('does something expected', async ({ somePage, ocClient, utils }) => {
+    await utils.withAllure({
+      suite: SUITE,
+      feature: T1,
+      tags: [T1_TAG, ADMIN_ONLY_TAG],
+    });
+
+    const result = await somePage.doSomething();
+    expect(result, 'descriptive assertion message').toBe(true);
+  });
+});
+```
+
+### Requirements
+
+- Import `test` and `expect` from the feature fixture — never from `@playwright/test`
+- Define `const SUITE` at module scope for allure reporting
+- Tag `test.describe` with tier tag + feature-area tag (from allure-constants)
+- Every `test()` calls `utils.withAllure(...)` first
+- Every `expect()` has a descriptive message string
+- Use `TestTimeouts.*` constants — never inline timeout numbers
+- All UI interactions through page objects — no raw `page` in specs
+- Track created resources: `ocClient.trackResource(kind, name, namespace)`
+- Setup failures must fail the suite — no `setupError` + `test.skip` patterns
+
+### OcClient Usage
+
+```typescript
+// Setup
+await ocClient.setupTestNamespace(namespace);
+await ocClient.createContainerDiskVm(vmName, namespace);
+await ocClient.waitForVmRunning(vmName, namespace, TestTimeouts.TEST_VM_CREATION);
+
+// Track for cleanup
+ocClient.trackResource('VirtualMachine', vmName, namespace);
+
+// Teardown
+await ocClient.cleanupTestNamespace(namespace).catch(() => {});
+```
+
+### OcClient RBAC Limitations (Hot Cluster / CI)
+
+In hot cluster mode (`HC_E2E=true`), the `OcClient` uses the pod's ServiceAccount token which has restricted RBAC permissions. The following operations are **not available** via `OcClient` in HC mode:
+
+| Denied Operation | Alternative |
+|---|---|
+| Create/manage RBAC resources (Roles, RoleBindings, ServiceAccounts) | Use `installPermissionsIfNeeded()` via the UI, or skip with `test.skip()` |
+| Create NetworkAttachmentDefinitions (NADs) | Assume pre-existing cluster NADs, or use `RequestContextClient` |
+| Create/delete VMI directly | Use VM start/stop which manages VMI lifecycle |
+| Patch HyperConverged (HCO) | Use `RequestContextClient.patchHyperConverged()` |
+| Create PVCs directly | Use DataVolumes which manage PVCs |
+| Patch StorageClasses | Use `RequestContextClient` |
+| OAuth/user management | Handled by global setup (runs as admin) |
+
+**When writing new tests, prefer these approaches in order:**
+
+1. **UI-based** — drive all actions through page objects; ideal for feature tests
+2. **RequestContextClient** — HTTP client through the console proxy; has admin-level permissions; use for API setup/teardown when `OcClient` lacks the permission
+3. **OcClient** — `oc` CLI wrapper; use for operations within the 33 allowed RBAC verbs
+
+In regular CI (non-HC), `OcClient` logs in as admin and has full access. The RBAC constraints only apply to hot cluster mode.
+
+### Assertions
+
+- Use `expect()` with page object return values and locators
+- Use `expect.poll()` for async state changes
+- Always include descriptive messages
+- Use `expect.soft()` for non-critical checks that shouldn't abort the test
+
+## Implementation Rules
+
+### 1. Fixture Hierarchy
+
+All fixtures extend `baseTest`. Create per-feature fixtures for each test area:
+
+```typescript
+const test = baseTest.extend<FeatureFixtures>({
+  featurePage: async ({ page }, use) => {
+    await use(new FeaturePage(page));
+  },
+});
+```
+
+### 2. Component / Page Object Separation
+
+- **Components** (`src/components/`) — low-level, per-section UI interactions
+- **Page objects** (`src/page-objects/`) — high-level, per-page methods that compose components
+- Page objects delegate to components via composition, not inheritance
+
+### 3. Selector Strategy
+
+1. Prefer `[data-test="..."]` and `[data-test-id="..."]` attributes
+2. Fall back to `getByRole()` with accessible names
+3. Fall back to `getByText()` for user-visible content
+
+### 4. File Size Limits
+
+| File type | Max lines |
+|-----------|-----------|
+| Spec file (`.spec.ts`) | 300 |
+| Page object (`*-page.ts`) | 500 |
+| Component (`*-component.ts`) | 400 |
+| Fixture (`*-fixture.ts`) | 150 |
+| Client (`oc-cli-client.ts`) | 800 |
+| Utility module | 400 |
+
+### 5. What Belongs Where
+
+| Content | Location | NOT in spec files |
+|---------|----------|-------------------|
+| Test definitions, assertions | Spec files | |
+| UI interactions, locators | Components / Page objects | |
+| K8s API operations (RBAC-safe) | OcClient / oc-handlers | |
+| K8s API operations (admin-only) | RequestContextClient | |
+| Test data generation | `data-factories/` | |
+| Helper functions, shared logic | `utils/` | |
+| Type definitions | `data-models/` | |
+| Allure/tag constants | `data-models/allure-constants.ts` | |
+| Resource setup orchestration | `utils/test-setup-helpers.ts` | |
+
+## Debugging Flaky / Failing Tests
+
+### Step 1: Live UI Exploration (always do first)
+
+Use Playwright MCP tools:
+
+```
+Playwright-browser_navigate → go to the page under test
+Playwright-browser_snapshot → accessibility tree (locator discovery)
+Playwright-browser_take_screenshot → visual state
+Playwright-browser_console_messages → JS errors
+Playwright-browser_network_requests → API calls
+```
+
+### Step 2: Inspect the Codebase
+
+1. Read the failing spec
+2. Read the component/page object with the broken locator
+3. Read the plugin source (`src/`) for the component under test
+4. Check `data-test` attributes in the DOM vs what the test expects
+
+### Step 3: Apply Fixes
+
+Update locators in components/page objects — not in spec files. Verify with `npm run check-types:playwright` and a test run.
+
+## Single-Process Execution Rule
+
+**Never run two concurrent `npx playwright test` commands.** Global setup creates shared auth files. Use `--workers=N` for parallelism within a single process.

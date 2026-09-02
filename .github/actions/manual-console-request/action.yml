@@ -1,0 +1,65 @@
+name: Request Manual Console Environment
+description: >
+  Create (or update) a trigger ConfigMap for the ci-env-controller to
+  provision the persistent, OAuth-protected manual-console environment,
+  and wait until it is ready. Separate from ci-env-request (used by E2E)
+  so E2E behavior is unaffected -- distinguished by the
+  "ci.kubevirt-plugin/type: manual-console" label instead of
+  "test-environment", which also exempts it from the controller's TTL
+  reaper.
+
+inputs:
+  plugin-image:
+    description: Plugin container image to deploy
+    required: true
+  test-namespace:
+    description: Kubernetes namespace for the manual console environment
+    default: manual-console
+  configmap-name:
+    description: Name of the trigger ConfigMap
+    default: manual-console
+  helm-release:
+    description: >
+      Helm release name. Defaults to configmap-name when left empty.
+    default: ''
+  ci-env-namespace:
+    description: Namespace where ci-env-controller runs
+    default: ci-env
+  htpasswd-user:
+    description: Username to grant OAuth login access
+    required: true
+  htpasswd-secret-name:
+    description: >
+      Name of a short-lived Secret (in ci-env-namespace) with key "password".
+      The controller reads it and deletes it immediately after applying the
+      htpasswd user.
+    required: true
+  timeout:
+    description: Max seconds to wait for environment to become ready
+    default: '360'
+
+outputs:
+  console-route:
+    description: External HTTPS route for the manual console
+    value: ${{ steps.request.outputs.console-route }}
+  bridge-base-address:
+    description: In-cluster URL for the console bridge (debugging)
+    value: ${{ steps.request.outputs.bridge-base-address }}
+
+runs:
+  using: composite
+  steps:
+    - name: Request and wait for manual console environment
+      id: request
+      shell: bash
+      env:
+        CM_NAME: ${{ inputs.configmap-name }}
+        CM_NS: ${{ inputs.ci-env-namespace }}
+        PLUGIN_IMAGE: ${{ inputs.plugin-image }}
+        TEST_NS: ${{ inputs.test-namespace }}
+        HELM_RELEASE: ${{ inputs.helm-release }}
+        HTPASSWD_USER: ${{ inputs.htpasswd-user }}
+        HTPASSWD_SECRET_NAME: ${{ inputs.htpasswd-secret-name }}
+        TIMEOUT: ${{ inputs.timeout }}
+      working-directory: ci-scripts/hot-cluster/ts
+      run: npx tsx src/scripts/manual-console-request.ts

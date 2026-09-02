@@ -1,0 +1,101 @@
+@use '../../overview-variables' as *;
+
+.overview-section {
+  &__toggle-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--pf-t--global--text--color--regular);
+    width: 100%;
+
+    @media (max-width: $overview-breakpoint--wide) {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--pf-t--global--spacer--xs);
+    }
+  }
+
+  &__toggle-title {
+    font-size: var(--pf-t--global--font--size--body--default);
+  }
+
+  &__sub-header {
+    font-size: var(--pf-t--global--font--size--sm);
+    font-weight: var(--pf-t--global--font--weight--body--default);
+  }
+
+  &__expandable {
+    padding: 0;
+    margin-bottom: 0 !important;
+
+    > .pf-v6-c-expandable-section__toggle {
+      background-color: var(--pf-t--global--background--color--secondary--default);
+      border-radius: var(--pf-t--global--border--radius--small);
+      width: 100%;
+
+      .pf-v6-c-button {
+        width: 100%;
+
+        .pf-v6-c-button__text {
+          width: 100%;
+        }
+      }
+    }
+  }
+
+  &__content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pf-t--global--spacer--md);
+    padding-top: var(--pf-t--global--spacer--sm);
+
+    .pf-v6-c-card__body {
+      padding-bottom: 0;
+      overflow-y: hidden;
+    }
+  }
+
+  &__row {
+    display: grid;
+    grid-template-columns: var(--overview-row-columns, 1fr 1fr 1fr);
+    gap: var(--pf-t--global--spacer--md);
+
+    > * {
+      min-width: 0;
+
+      .pf-v6-c-card__body {
+        overflow-x: auto;
+      }
+    }
+
+    @media (max-width: $overview-breakpoint--medium) {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    @media (max-width: $overview-breakpoint--narrow) {
+      grid-template-columns: 1fr;
+    }
+
+    &--single-column-wide {
+      @media (max-width: $overview-breakpoint--medium) {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    &--single-column-medium {
+      @media (max-width: $overview-breakpoint--medium-narrow) {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    &--two-columns-wide {
+      @media (max-width: $overview-breakpoint--wide) {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      @media (max-width: $overview-breakpoint--narrow) {
+        grid-template-columns: 1fr;
+      }
+    }
+  }
+}

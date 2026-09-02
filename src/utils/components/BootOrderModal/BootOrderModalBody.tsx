@@ -1,0 +1,136 @@
+import React, { type FC } from 'react';
+
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import {
+  type BootableDeviceType,
+  type DeviceType,
+} from '@kubevirt-utils/resources/vm/utils/boot-order/bootOrder';
+import {
+  Button,
+  ButtonVariant,
+  DataList,
+  DataListCell,
+  DataListControl,
+  DataListDragButton,
+  DataListItem,
+  DataListItemCells,
+  DataListItemRow,
+  Split,
+  SplitItem,
+} from '@patternfly/react-core';
+import { DragDrop, Draggable, Droppable } from '@patternfly/react-core/deprecated';
+import { MinusCircleIcon } from '@patternfly/react-icons';
+
+import { BootOrderEmptyState } from './BootOrderEmptyState';
+import DeviceTypeIcon from './DeviceTypeIcon';
+
+export const BootOrderModalBody: FC<{
+  changeEditMode: (isEditMode: boolean) => void;
+  devices: BootableDeviceType[];
+  isEditMode: boolean;
+  onChange: (disks: BootableDeviceType[]) => void;
+}> = ({ changeEditMode, devices, isEditMode, onChange }) => {
+  const { t } = useKubevirtTranslation();
+
+  const reorder = (
+    list: BootableDeviceType[],
+    startIndex: number,
+    endIndex: number,
+  ): BootableDeviceType[] => {
+    const result = Array.from(list);
+    const [removed] = result.splice(startIndex, 1);
+    result.splice(endIndex, 0, removed);
+    return result;
+  };
+
+  const onDrop = (source, dest): boolean | undefined => {
+    if (dest) {
+      const newBootableDevices = reorder(devices, source.index, dest.index);
+      onChange(newBootableDevices);
+
+      return true; // Signal that this is a valid drop and not to animate the item returning home.
+    }
+  };
+
+  // Remove a bootOrder from a device by index.
+  const onDelete = (name: string): void => {
+    const deviceToUpdate = devices.find((disk) => disk.value.name === name);
+
+    const newDevices = [
+      ...devices.filter((device) => device.value.name !== name),
+      { ...deviceToUpdate, value: { ...deviceToUpdate.value, bootOrder: undefined } },
+    ];
+
+    onChange(newDevices);
+  };
+
+  const showEmpty = devices.length === 0 && !isEditMode;
+
+  return (
+    <>
+      {showEmpty ? (
+        <BootOrderEmptyState
+          addItemDisabledMessage={t('All sources selected')}
+          addItemIsDisabled={devices.length === 0}
+          addItemMessage={t('Add source')}
+          message={t(
+            'VirtualMachine will attempt to boot from disks by order of apearance in YAML file',
+          )}
+          onClick={() => {
+            changeEditMode(true);
+          }}
+          title={t('No resource selected')}
+        />
+      ) : (
+        <DragDrop onDrop={onDrop}>
+          <Droppable hasNoWrapper>
+            <DataList aria-label="draggable data list example">
+              {devices.map(({ type, value }, index) => (
+                <Draggable hasNoWrapper key={value.name}>
+                  <DataListItem aria-labelledby={value.name}>
+                    <DataListItemRow>
+                      <DataListControl>
+                        <DataListDragButton
+                          aria-describedby="Press space or enter to begin dragging, and use the arrow keys to navigate up or down. Press enter to confirm the drag, or any other key to cancel the drag operation."
+                          aria-label="Reorder"
+                          aria-labelledby={value.name}
+                          aria-pressed="false"
+                        />
+                      </DataListControl>
+                      <DataListItemCells
+                        dataListCells={[
+                          <DataListCell key={value.name}>
+                            <Split>
+                              <SplitItem isFilled>
+                                <span id={value.name}>{value.name}</span>
+
+                                <span className="pf-v6-u-ml-sm">
+                                  <DeviceTypeIcon type={type as DeviceType} />
+                                </span>
+                              </SplitItem>
+                              <SplitItem>
+                                {index !== devices.length - 1 && (
+                                  <Button
+                                    className="kubevirt-boot-order__delete-btn"
+                                    icon={<MinusCircleIcon />}
+                                    id={`${value.name}-delete-btn`}
+                                    onClick={() => onDelete(value.name)}
+                                    variant={ButtonVariant.link}
+                                  />
+                                )}
+                              </SplitItem>
+                            </Split>
+                          </DataListCell>,
+                        ]}
+                      />
+                    </DataListItemRow>
+                  </DataListItem>
+                </Draggable>
+              ))}
+            </DataList>
+          </Droppable>
+        </DragDrop>
+      )}
+    </>
+  );
+};

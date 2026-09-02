@@ -1,0 +1,25 @@
+.kubevirt-boot-order {
+  &-order-summary__expandable.pf-v6-c-expandable .pf-v6-c-expandable__content {
+    margin-top: 0;
+  }
+
+  &-summary__empty-text {
+    margin-bottom: 0;
+  }
+
+  &__boot-order-empty-btn {
+    margin-top: var(--pf-t--global--spacer--md);
+  }
+
+  &__data-list-item {
+    background: var(--pf-t--global--background--color--primary--default);
+  }
+
+  &__delete-btn.pf-v6-c-button.pf-m-link {
+    --pf-v6-c-button--PaddingBlockStart: 0;
+    --pf-v6-c-button--PaddingInlineEnd: 0;
+    --pf-v6-c-button--PaddingBlockEnd: 0;
+    --pf-v6-c-button--PaddingInlineStart: 0;
+    --pf-v6-c-button--m-link--Color: var(--pf-t--global--text--color--regular);
+  }
+}

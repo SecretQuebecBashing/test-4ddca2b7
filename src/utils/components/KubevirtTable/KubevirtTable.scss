@@ -1,0 +1,93 @@
+.kubevirt-table__export-toolbar {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+// Default table layout for all KubevirtTables
+.kubevirt-table.pf-v6-c-table {
+  table-layout: fixed;
+  width: 100%;
+
+  // Actions column - fixed small width for kebab menu
+  .pf-v6-c-table__action {
+    width: 50px;
+    max-width: 50px;
+    min-width: 50px;
+  }
+}
+
+.kubevirt-table--fixed-layout .pf-v6-c-table {
+  table-layout: fixed;
+}
+
+.kubevirt-table--fixed-layout .pf-v6-c-table tr {
+  display: table;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.kubevirt-table--fixed-layout .pf-v6-c-table tr > * {
+  height: auto;
+}
+
+.kubevirt-table--fixed-layout .pf-v6-c-table tbody > tr:first-child > * {
+  padding-block-start: 0;
+}
+
+.kubevirt-table--fixed-layout .pf-v6-c-table thead .pf-v6-c-table__check,
+.kubevirt-table--fixed-layout .pf-v6-c-table tbody .pf-v6-c-table__check {
+  width: 8.333%;
+}
+
+@media screen and (min-width: 768px) {
+  .kubevirt-table--fixed-layout .pf-v6-c-table thead .pf-v6-c-table__check,
+  .kubevirt-table--fixed-layout .pf-v6-c-table tbody .pf-v6-c-table__check {
+    width: 8.333%;
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .kubevirt-table--fixed-layout .pf-v6-c-table thead .pf-v6-c-table__check,
+  .kubevirt-table--fixed-layout .pf-v6-c-table tbody .pf-v6-c-table__check {
+    width: 16.66%;
+  }
+}
+
+.kubevirt-table--fixed-layout .pf-v6-c-table thead .pf-v6-c-table__action,
+.kubevirt-table--fixed-layout .pf-v6-c-table tbody .pf-v6-c-table__action {
+  padding-left: 0;
+  width: 5%;
+}
+
+@media screen and (max-width: 991px) {
+  .kubevirt-table--fixed-layout .pf-v6-c-table thead .pf-v6-c-table__action,
+  .kubevirt-table--fixed-layout .pf-v6-c-table tbody .pf-v6-c-table__action {
+    width: 10%;
+  }
+}
+
+.kubevirt-table--borderless {
+  .pf-v6-c-table tr {
+    border: none;
+  }
+
+  .pf-v6-c-table tbody > tr:last-child {
+    border-block-end: none;
+  }
+}
+
+.kubevirt-table--in-card {
+  overflow-x: auto;
+
+  .pf-v6-c-table tr {
+    border: none;
+  }
+
+  .pf-v6-c-table tbody > tr:last-child {
+    border-block-end: none;
+  }
+}
+
+.kubevirt-table--tabs-content {
+  padding-block-start: var(--pf-t--global--spacer--md);
+}

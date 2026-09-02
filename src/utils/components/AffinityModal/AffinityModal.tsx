@@ -1,0 +1,148 @@
+import React, { type FC, useMemo, useState } from 'react';
+import produce from 'immer';
+
+import { type IoK8sApiCoreV1Node } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { type V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { isEqualObject } from '@kubevirt-utils/components/NodeSelectorModal/utils/helpers';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getAffinity } from '@kubevirt-utils/resources/vm';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { ModalVariant } from '@patternfly/react-core';
+
+import AffinityEditModal from './components/AffinityEditModal/AffinityEditModal';
+import AffinityEmptyState from './components/AffinityEmptyState';
+import AffinityList from './components/AffinityList/AffinityList';
+import { useRequiredAndPreferredQualifiedNodes } from './hooks/useRequiredAndPreferredQualifiedNodes';
+import { defaultNewAffinity } from './utils/constants';
+import {
+  getAffinityFromRowsData,
+  getAvailableAffinityID,
+  getRowsDataFromAffinity,
+} from './utils/helpers';
+import { type AffinityRowData } from './utils/types';
+
+type AffinityModalProps = {
+  isOpen: boolean;
+  nodes: IoK8sApiCoreV1Node[];
+  nodesLoaded: boolean;
+  onClose: () => void;
+  onSubmit: (updatedVM: V1VirtualMachine) => Promise<V1VirtualMachine | void>;
+  vm: V1VirtualMachine;
+};
+
+const AffinityModal: FC<AffinityModalProps> = ({
+  isOpen,
+  nodes,
+  nodesLoaded,
+  onClose,
+  onSubmit,
+  vm,
+}) => {
+  const { t } = useKubevirtTranslation();
+
+  const [affinities, setAffinities] = useState<AffinityRowData[]>(() =>
+    getRowsDataFromAffinity(getAffinity(vm)),
+  );
+  const [focusedAffinity, setFocusedAffinity] = useState<AffinityRowData>(defaultNewAffinity);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const [qualifiedRequiredNodes, qualifiedPreferredNodes] = useRequiredAndPreferredQualifiedNodes(
+    nodes,
+    nodesLoaded,
+    affinities,
+  );
+
+  const onAffinityAdd = (affinity: AffinityRowData): void => {
+    setAffinities((prevAffinities) => [...(prevAffinities || []), affinity]);
+    setIsEditing(false);
+    setIsCreating(false);
+  };
+
+  const onAffinityChange = (updatedAffinity: AffinityRowData): void => {
+    setAffinities((prevAffinities) =>
+      prevAffinities.map((affinity) => {
+        if (affinity.id === updatedAffinity.id) return { ...affinity, ...updatedAffinity };
+        return affinity;
+      }),
+    );
+    setIsEditing(false);
+  };
+
+  const onAffinityClickAdd = (): void => {
+    setIsEditing(true);
+    setIsCreating(true);
+    setFocusedAffinity({ ...defaultNewAffinity, id: getAvailableAffinityID(affinities) });
+  };
+
+  const onAffinityClickEdit = (affinity: AffinityRowData): void => {
+    setFocusedAffinity(affinity);
+    setIsEditing(true);
+  };
+
+  const onAffinityDelete = (affinity: AffinityRowData): void =>
+    setAffinities((prevAffinities) => prevAffinities.filter(({ id }) => id !== affinity.id));
+
+  const onCancel = (): void => {
+    setIsEditing(false);
+    setIsCreating(false);
+  };
+
+  const onSaveAffinity = isCreating ? onAffinityAdd : onAffinityChange;
+
+  const updatedVirtualMachine = useMemo(() => {
+    const updatedVM = produce<V1VirtualMachine>(vm, (vmDraft: V1VirtualMachine) => {
+      vmDraft.spec.template.spec.affinity ??= {};
+
+      const updatedAffinity = getAffinityFromRowsData(affinities);
+
+      if (!isEqualObject(getAffinity(vmDraft), updatedAffinity)) {
+        vmDraft.spec.template.spec.affinity = updatedAffinity;
+      }
+    });
+    return updatedVM;
+  }, [vm, affinities]);
+
+  const list = isEmpty(affinities) ? (
+    <AffinityEmptyState onAffinityClickAdd={onAffinityClickAdd} />
+  ) : (
+    <AffinityList
+      affinities={affinities}
+      nodesLoaded={nodesLoaded}
+      onAffinityClickAdd={onAffinityClickAdd}
+      onDelete={onAffinityDelete}
+      onEdit={onAffinityClickEdit}
+      preferredQualifiedNodes={qualifiedPreferredNodes}
+      qualifiedNodes={qualifiedRequiredNodes}
+    />
+  );
+
+  return isEditing ? (
+    <AffinityEditModal
+      focusedAffinity={focusedAffinity}
+      isOpen={isOpen}
+      nodes={nodes}
+      nodesLoaded={nodesLoaded}
+      onCancel={onCancel}
+      onSubmit={onSaveAffinity}
+      setFocusedAffinity={setFocusedAffinity}
+      title={isCreating ? t('Add affinity rule') : t('Edit affinity rule')}
+    />
+  ) : (
+    <TabModal
+      headerText={t('Affinity rules')}
+      isOpen={isOpen}
+      modalVariant={ModalVariant.medium}
+      obj={updatedVirtualMachine}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      submitBtnText={t('Apply rules')}
+    >
+      {list}
+    </TabModal>
+  );
+};
+
+export default AffinityModal;

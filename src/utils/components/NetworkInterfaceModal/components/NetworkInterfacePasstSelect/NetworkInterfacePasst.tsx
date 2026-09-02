@@ -1,0 +1,86 @@
+import React, { type FC, useCallback, useState } from 'react';
+
+import NetworkInterfacePasstHelperPopover from '@kubevirt-utils/components/NetworkInterfaceModal/components/NetworkInterfacePasstSelect/NetworkInterfacePasstHelperPopover';
+import SelectToggle from '@kubevirt-utils/components/toggles/SelectToggle';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import usePasstFeatureFlag from '@kubevirt-utils/hooks/usePasstFeatureFlag';
+import useNamespaceUDN from '@kubevirt-utils/resources/udn/hooks/useNamespaceUDN';
+import { interfaceTypesProxy } from '@kubevirt-utils/resources/vm/utils/network/constants';
+import { FormGroup, Select, SelectOption } from '@patternfly/react-core';
+
+import { getPASSTSelectableOptions, isPodNetworkName } from '../../utils/helpers';
+
+type NetworkInterfacePasstProps = {
+  interfaceType: string;
+  namespace: string;
+  networkName: string;
+  setInterfaceType: (newValue: string) => void;
+};
+
+const NetworkInterfacePasst: FC<NetworkInterfacePasstProps> = ({
+  interfaceType,
+  namespace,
+  networkName,
+  setInterfaceType,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const [isOpen, setIsOpen] = useState(false);
+  const options = getPASSTSelectableOptions(t);
+  const passtFeatureFlag = usePasstFeatureFlag();
+  const [isNamespaceManagedByUDN] = useNamespaceUDN(namespace);
+
+  const selectedType = interfaceType || interfaceTypesProxy.l2bridge;
+
+  const selectedOption = options.find((option) => option.id === selectedType);
+
+  const onToggle = useCallback(() => {
+    setIsOpen((currentIsOpen) => !currentIsOpen);
+  }, []);
+
+  const onSelect = useCallback(
+    (_event, value: string) => {
+      setInterfaceType(value);
+      onToggle();
+    },
+    [onToggle, setInterfaceType],
+  );
+
+  if (!isNamespaceManagedByUDN || !isPodNetworkName(networkName)) return null;
+
+  return (
+    <FormGroup
+      className="form-group-margin"
+      fieldId="passt-checkbox"
+      label={t('Binding')}
+      labelHelp={
+        passtFeatureFlag.featureEnabled && (
+          <NetworkInterfacePasstHelperPopover namespace={namespace} />
+        )
+      }
+    >
+      <div data-test="passt-binding-select">
+        <Select
+          isOpen={isOpen}
+          onOpenChange={setIsOpen}
+          onSelect={onSelect}
+          selected={selectedType}
+          toggle={SelectToggle({
+            'data-test': 'source-type-select',
+            isExpanded: isOpen,
+            isFullWidth: true,
+            onClick: onToggle,
+            selected: selectedOption?.title ?? t('Select a binding'),
+          })}
+        >
+          {options.map((option) => (
+            <SelectOption description={option.description} key={option.id} value={option.id}>
+              {option.title}
+            </SelectOption>
+          ))}
+        </Select>
+      </div>
+    </FormGroup>
+  );
+};
+
+export default NetworkInterfacePasst;

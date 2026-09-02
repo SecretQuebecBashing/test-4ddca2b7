@@ -1,0 +1,129 @@
+import React, { FC, useCallback } from 'react';
+
+import { VirtualMachineModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { IoK8sApiCoreV1Node } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import { V1VirtualMachine, V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import AffinityModal from '@kubevirt-utils/components/AffinityModal/AffinityModal';
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import { useModal } from '@kubevirt-utils/components/ModalProvider/ModalProvider';
+import NodeSelectorDetailItem from '@kubevirt-utils/components/NodeSelectorDetailItem/NodeSelectorDetailItem';
+import NodeSelectorModal from '@kubevirt-utils/components/NodeSelectorModal/NodeSelectorModal';
+import SearchItem from '@kubevirt-utils/components/SearchItem/SearchItem';
+import Tolerations from '@kubevirt-utils/components/Tolerations/Tolerations';
+import TolerationsModal from '@kubevirt-utils/components/TolerationsModal/TolerationsModal';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { OLSPromptType } from '@lightspeed/utils/prompts';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { kubevirtK8sUpdate } from '@multicluster/k8sRequests';
+import { DescriptionList, GridItem } from '@patternfly/react-core';
+import Descheduler from '@virtualmachines/details/tabs/configuration/scheduling/components/Descheduler';
+import DeschedulerPopover from '@virtualmachines/details/tabs/configuration/scheduling/components/DeschedulerPopover';
+
+import Affinity from './Affinity';
+
+type SchedulingSectionLeftGridProps = {
+  canUpdateVM: boolean;
+  nodes: IoK8sApiCoreV1Node[];
+  nodesLoaded: boolean;
+  onUpdateVM?: (updatedVM: V1VirtualMachine) => Promise<V1VirtualMachine>;
+  vm: V1VirtualMachine;
+  vmi?: V1VirtualMachineInstance;
+};
+
+const SchedulingSectionLeftGrid: FC<SchedulingSectionLeftGridProps> = ({
+  canUpdateVM,
+  nodes,
+  nodesLoaded,
+  onUpdateVM,
+  vm,
+  vmi,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const { createModal } = useModal();
+
+  const onSubmit = useCallback(
+    (updatedVM: V1VirtualMachine) =>
+      onUpdateVM
+        ? onUpdateVM(updatedVM)
+        : kubevirtK8sUpdate({
+            cluster: getCluster(vm),
+            data: updatedVM,
+            model: VirtualMachineModel,
+            name: updatedVM?.metadata?.name,
+            ns: updatedVM?.metadata?.namespace,
+          }),
+    [onUpdateVM],
+  );
+
+  return (
+    <GridItem span={5}>
+      <DescriptionList>
+        <DescriptionItem
+          descriptionData={
+            <NodeSelectorDetailItem nodeSelector={vm?.spec?.template?.spec?.nodeSelector} />
+          }
+          onEditClick={() =>
+            createModal(({ isOpen, onClose }) => (
+              <NodeSelectorModal
+                isOpen={isOpen}
+                nodes={nodes}
+                nodesLoaded={nodesLoaded}
+                onClose={onClose}
+                onSubmit={onSubmit}
+                vm={vm}
+              />
+            ))
+          }
+          descriptionHeader={<SearchItem id="node-selector">{t('Node selector')}</SearchItem>}
+          isEdit={canUpdateVM}
+        />
+        <DescriptionItem
+          onEditClick={() =>
+            createModal(({ isOpen, onClose }) => (
+              <TolerationsModal
+                isOpen={isOpen}
+                nodes={nodes}
+                nodesLoaded={nodesLoaded}
+                onClose={onClose}
+                onSubmit={onSubmit}
+                vm={vm}
+                vmi={vmi}
+              />
+            ))
+          }
+          descriptionData={<Tolerations vm={vm} />}
+          descriptionHeader={<SearchItem id="tolerations">{t('Tolerations')}</SearchItem>}
+          isEdit={canUpdateVM}
+        />
+        <DescriptionItem
+          onEditClick={() =>
+            createModal(({ isOpen, onClose }) => (
+              <AffinityModal
+                isOpen={isOpen}
+                nodes={nodes}
+                nodesLoaded={nodesLoaded}
+                onClose={onClose}
+                onSubmit={onSubmit}
+                vm={vm}
+              />
+            ))
+          }
+          descriptionData={<Affinity vm={vm} />}
+          descriptionHeader={<SearchItem id="affinity">{t('Affinity rules')}</SearchItem>}
+          isEdit={canUpdateVM}
+        />
+        <DescriptionItem
+          bodyContent={<DeschedulerPopover />}
+          data-test="descheduler"
+          descriptionData={<Descheduler vm={vm} />}
+          descriptionHeader={<SearchItem id="descheduler">{t('Descheduler')}</SearchItem>}
+          isPopover
+          olsObj={vm}
+          promptType={OLSPromptType.DESCHEDULER}
+        />
+      </DescriptionList>
+    </GridItem>
+  );
+};
+
+export default SchedulingSectionLeftGrid;

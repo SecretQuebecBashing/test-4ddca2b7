@@ -1,0 +1,33 @@
+import React, { FC } from 'react';
+
+import { getCancelUploadLabel } from '@kubevirt-utils/hooks/useCDIUpload/utils';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { ProgressStatus } from '@openshift-console/dynamic-plugin-sdk';
+import { Button, ButtonVariant } from '@patternfly/react-core';
+
+type UploadPVCPopoverProgressStatusProps = {
+  onCancelClick: () => void;
+  title: string;
+};
+
+const UploadPVCPopoverProgressStatus: FC<UploadPVCPopoverProgressStatusProps> = ({
+  onCancelClick,
+  title,
+}) => {
+  const { t } = useKubevirtTranslation();
+
+  return (
+    <ProgressStatus title={title}>
+      <Button
+        className="pf-m-link--align-left"
+        id="cdi-upload-cancel-btn"
+        onMouseUp={onCancelClick}
+        variant={ButtonVariant.link}
+      >
+        {getCancelUploadLabel(t)}
+      </Button>
+    </ProgressStatus>
+  );
+};
+
+export default UploadPVCPopoverProgressStatus;

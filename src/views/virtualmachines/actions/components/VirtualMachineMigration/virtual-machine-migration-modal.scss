@@ -1,0 +1,28 @@
+.virtual-machine-migration-modal {
+  .pf-v6-c-wizard__main {
+    min-height: 28rem;
+
+    h2 {
+      margin-bottom: var(--pf-t--global--spacer--md);
+    }
+  }
+
+  .migration-status {
+    &__body {
+      padding-top: var(--pf-t--global--spacer--md);
+      padding-bottom: 7rem;
+
+      h2 {
+        padding-bottom: var(--pf-t--global--spacer--md);
+      }
+
+      p:last-of-type {
+        padding-top: var(--pf-t--global--spacer--md);
+      }
+    }
+
+    &__view-report {
+      margin-left: auto;
+    }
+  }
+}

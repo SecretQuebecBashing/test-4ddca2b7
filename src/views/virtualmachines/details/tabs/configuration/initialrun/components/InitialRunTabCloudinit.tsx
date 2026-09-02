@@ -1,0 +1,56 @@
+import React, { FC } from 'react';
+
+import { V1VirtualMachine, V1VirtualMachineInstance } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { CloudInitDescription } from '@kubevirt-utils/components/CloudinitDescription/CloudInitDescription';
+import CloudinitModal from '@kubevirt-utils/components/CloudinitModal/CloudinitModal';
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import { useModal } from '@kubevirt-utils/components/ModalProvider/ModalProvider';
+import SearchItem from '@kubevirt-utils/components/SearchItem/SearchItem';
+import useHideCredentials from '@kubevirt-utils/hooks/useHideCredentials/useHideCredentials';
+import useHideYamlTab from '@kubevirt-utils/hooks/useHideYamlTab';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+
+type InitialRunTabCloudInitProps = {
+  canUpdateVM: boolean;
+  onSubmit: (updatedVM: V1VirtualMachine) => Promise<V1VirtualMachine>;
+  vm: V1VirtualMachine;
+  vmi?: V1VirtualMachineInstance;
+};
+
+const InitialRunTabCloudinit: FC<InitialRunTabCloudInitProps> = ({
+  canUpdateVM,
+  onSubmit,
+  vm,
+  vmi,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const { createModal } = useModal();
+  const { shouldHideCredentials } = useHideCredentials();
+  const { hideYamlTab } = useHideYamlTab();
+
+  const isCreating = !vm?.metadata?.uid;
+  const canEdit = canUpdateVM && (isCreating || !shouldHideCredentials);
+
+  return (
+    <DescriptionItem
+      onEditClick={() =>
+        createModal(({ isOpen, onClose }) => (
+          <CloudinitModal
+            hideYAMLEditor={hideYamlTab}
+            isOpen={isOpen}
+            onClose={onClose}
+            onSubmit={onSubmit}
+            vm={vm}
+            vmi={vmi}
+          />
+        ))
+      }
+      descriptionData={<CloudInitDescription vm={vm} />}
+      descriptionHeader={<SearchItem id="cloud-init">{t('Cloud-init')}</SearchItem>}
+      isEdit={canEdit}
+      showEditOnTitle
+    />
+  );
+};
+
+export default InitialRunTabCloudinit;

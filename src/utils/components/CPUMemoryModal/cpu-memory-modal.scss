@@ -1,0 +1,13 @@
+.cpu-memory-modal {
+  .inputs {
+    display: flex;
+    gap: var(--pf-t--global--spacer--xl);
+
+    .input-memory {
+      flex: 1;
+    }
+    .cpu-input {
+      flex: 1;
+    }
+  }
+}

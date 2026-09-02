@@ -1,0 +1,95 @@
+import React, { FC, useEffect, useState } from 'react';
+
+import { HyperConvergedV1Beta1Model as HyperConvergedModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import SectionWithSwitch from '@kubevirt-utils/components/SectionWithSwitch/SectionWithSwitch';
+import { HyperConverged } from '@kubevirt-utils/hooks/useHyperConvergeConfiguration';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { OLSPromptType } from '@lightspeed/utils/prompts';
+import { kubevirtK8sPatch } from '@multicluster/k8sRequests';
+import { Alert, AlertVariant } from '@patternfly/react-core';
+import { useSettingsCluster } from '@settings/context/SettingsClusterContext';
+
+import { getGeneralSettingsLabels } from '../../../consts/consts';
+
+import './KernelSamepageMerging.scss';
+
+type KernelSamepageMergingProps = {
+  hyperConvergeConfiguration: [hyperConvergeConfig: HyperConverged, loaded: boolean, error: Error];
+  newBadge?: boolean;
+};
+const KernelSamepageMerging: FC<KernelSamepageMergingProps> = ({
+  hyperConvergeConfiguration,
+  newBadge = false,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const cluster = useSettingsCluster();
+  const [hyperConverge, hyperLoaded] = hyperConvergeConfiguration;
+  const ksmConfiguration = hyperConverge?.spec?.ksmConfiguration;
+  const [isEnabled, setIsEnabled] = useState<boolean>();
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<null | string>(null);
+  useEffect(() => {
+    if (hyperLoaded) {
+      setIsEnabled(
+        !!(
+          ksmConfiguration?.hasOwnProperty('nodeLabelSelector') &&
+          // Empty nodeLabelSelector will enable KSM on every node.
+          isEmpty(ksmConfiguration?.nodeLabelSelector)
+        ),
+      );
+    }
+  }, [ksmConfiguration, hyperLoaded]);
+
+  const onKSMchange = (value: boolean) => {
+    setError(null);
+    setIsLoading(true);
+    kubevirtK8sPatch<HyperConverged>({
+      cluster,
+      data: [
+        {
+          op: !ksmConfiguration ? 'add' : 'replace',
+          path: `/spec/ksmConfiguration`,
+          value: value ? { nodeLabelSelector: {} } : {},
+        },
+      ],
+      model: HyperConvergedModel,
+      resource: hyperConverge,
+    })
+      .then(() => setIsEnabled(value))
+      .catch((err) => setError(err.message))
+      .finally(() => setIsLoading(false));
+  };
+
+  return (
+    <>
+      <SectionWithSwitch
+        helpTextIconContent={t(
+          'KSM is a memory-saving deduplication feature designed to fit more VirtualMachines into physical memory by sharing the data common between them. It is specifically effective for similar VirtualMachines. KSM should only be used with trusted workloads. Turning this feature on enables it for all nodes in the cluster.',
+        )}
+        dataTestID="kernel-samepage-merging"
+        isDisabled={!hyperLoaded}
+        isLoading={isLoading}
+        newBadge={newBadge}
+        olsObj={hyperConvergeConfiguration?.[0]}
+        olsPromptType={OLSPromptType.KERNEL_SAMEPAGE_MERGING}
+        popoverClassName="KernelSamepageMerging__HelpTextIcon"
+        switchIsOn={isEnabled}
+        title={getGeneralSettingsLabels(t).kernelSamepageMerging}
+        turnOnSwitch={onKSMchange}
+      />
+      {error && (
+        <Alert
+          className="KernelSamepageMerging__Alert"
+          isInline
+          title={t('An error occurred')}
+          variant={AlertVariant.danger}
+        >
+          {error}
+        </Alert>
+      )}
+    </>
+  );
+};
+
+export default KernelSamepageMerging;

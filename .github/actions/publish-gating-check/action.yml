@@ -1,0 +1,80 @@
+name: Publish Run Gating Tests Check
+description: |
+  Creates or updates the "Run Gating Tests" check-run for a given SHA.
+  Pass check-run-id (from a prior call's output, within the same
+  workflow run) to update that same check-run to its next status instead
+  of creating a new one -- GitHub allows a check-run to be updated by
+  GITHUB_TOKEN from a later job of the *same* workflow run, but not from
+  a different workflow run, so cross-run "retries" (a fresh pr_number
+  dispatch, /retest-e2e, a stale-marker) must still create a fresh
+  check-run; the merge box shows whichever reported most recently.
+
+  Single source of truth for the check's name/shape, used by
+  on-main-push.yml, and by hot-cluster-e2e.yml's prepare job
+  (creates the initial in_progress check-run) and its verify-gating-tests
+  job (updates that same check-run to its final completed result).
+
+inputs:
+  head-sha:
+    description: SHA to attach the check-run to (ignored when check-run-id is set)
+    required: false
+    default: ''
+  check-run-id:
+    description: |
+      Existing check-run id to update in place (from a prior call's
+      check-run-id output, earlier in the same workflow run). Leave
+      empty to create a fresh check-run instead.
+    required: false
+    default: ''
+  status:
+    description: queued | in_progress | completed
+    required: true
+  conclusion:
+    description: Required when status is completed (success | failure | neutral | ...)
+    required: false
+    default: ''
+  title:
+    description: Short check-run title shown on the PR
+    required: true
+  summary:
+    description: Longer check-run summary (markdown) shown on the PR
+    required: true
+  details-url:
+    description: Optional link to the workflow run for more detail
+    required: false
+    default: ''
+  name:
+    description: Check-run name (only used when creating a fresh check-run)
+    required: false
+    default: 'Run Gating Tests'
+  github-token:
+    description: |
+      Token to create/update the check-run with. Use a bot App token so the
+      check-run gets its own check-suite and isn't grouped under an unrelated
+      workflow in the PR checks UI. Falls back to the default GITHUB_TOKEN.
+    required: false
+    default: ''
+
+outputs:
+  check-run-id:
+    description: id of the created or updated check-run, for a later call in the same run to update
+    value: ${{ steps.publish.outputs.check_run_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create or update check-run
+      id: publish
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
+        CHECK_HEAD_SHA: ${{ inputs.head-sha }}
+        CHECK_RUN_ID: ${{ inputs.check-run-id }}
+        CHECK_STATUS: ${{ inputs.status }}
+        CHECK_CONCLUSION: ${{ inputs.conclusion }}
+        CHECK_TITLE: ${{ inputs.title }}
+        CHECK_SUMMARY: ${{ inputs.summary }}
+        CHECK_DETAILS_URL: ${{ inputs.details-url }}
+        CHECK_NAME: ${{ inputs.name }}
+      working-directory: .github/scripts
+      run: npx tsx src/e2e/publish-gating-check.ts

@@ -1,0 +1,49 @@
+name: Needs Rebase
+
+# Applies/removes the needs-rebase label when the PR itself changes.
+# See on-main-push.yml for the main-advanced path.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sync-label:
+    name: Sync Needs-Rebase Label
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    concurrency:
+      group: needs-rebase-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Generate bot token
+        id: bot-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+          permission-issues: write
+
+      - name: Setup scripts
+        uses: ./.github/actions/setup-gh-scripts
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Sync label from mergeable state
+        env:
+          BOT_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        working-directory: .github/scripts
+        run: npx tsx src/merge/needs-rebase-entry.ts

@@ -1,0 +1,35 @@
+export enum VM_STATUS {
+  CrashLoopBackOff = 'CrashLoopBackOff',
+  DataVolumeError = 'DataVolumeError',
+  Deleting = 'Deleting',
+  ErrImagePull = 'ErrImagePull',
+  ErrorDataVolumeNotFound = 'ErrorDataVolumeNotFound',
+  ErrorPvcNotFound = 'ErrorPvcNotFound',
+  ErrorUnschedulable = 'ErrorUnschedulable',
+  ImagePullBackOff = 'ImagePullBackOff',
+  Migrating = 'Migrating',
+  Paused = 'Paused',
+  Provisioning = 'Provisioning',
+  Running = 'Running',
+  Starting = 'Starting',
+  Stopped = 'Stopped',
+  Stopping = 'Stopping',
+  Terminating = 'Terminating',
+  Unknown = 'Unknown',
+  WaitingForReceiver = 'WaitingForReceiver',
+  WaitingForVolumeBinding = 'WaitingForVolumeBinding',
+}
+
+export const VM_ERROR_STATUSES = [
+  VM_STATUS.CrashLoopBackOff,
+  VM_STATUS.ErrorUnschedulable,
+  VM_STATUS.ErrImagePull,
+  VM_STATUS.ImagePullBackOff,
+  VM_STATUS.ErrorPvcNotFound,
+  VM_STATUS.ErrorDataVolumeNotFound,
+  VM_STATUS.DataVolumeError,
+  VM_STATUS.Unknown,
+  VM_STATUS.WaitingForVolumeBinding,
+];
+
+export const ERROR_STATUS = 'Error';

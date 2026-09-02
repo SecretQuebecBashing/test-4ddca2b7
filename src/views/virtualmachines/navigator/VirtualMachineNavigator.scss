@@ -1,0 +1,9 @@
+.vm-navigator-tabs {
+  --vm-tabs-height: 3.0625rem;
+
+  position: sticky;
+  top: 0;
+  z-index: var(--pf-t--global--z-index--md);
+  background-color: var(--pf-t--global--background--color--sticky--default);
+  padding-top: var(--pf-t--global--spacer--sm);
+}

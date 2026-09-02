@@ -1,0 +1,15 @@
+import { Selector } from '@openshift-console/dynamic-plugin-sdk';
+
+export type ListPageProps = {
+  fieldSelector?: string;
+  hideColumnManagement?: boolean;
+  hideNameLabelFilters?: boolean;
+  hideTextFilter?: boolean;
+  kind?: string;
+  nameFilter?: string;
+  namespace?: string;
+  selector?: Selector;
+  showTitle?: boolean;
+};
+
+export type IPAddress = { interfaceName: string; ip: string };

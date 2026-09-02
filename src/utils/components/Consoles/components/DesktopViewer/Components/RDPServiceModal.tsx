@@ -1,0 +1,75 @@
+import React, { type FC, useState } from 'react';
+
+import {
+  type V1VirtualMachine,
+  type V1VirtualMachineInstance,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import ExternalLink from '@kubevirt-utils/components/ExternalLink/ExternalLink';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import { documentationURL } from '@kubevirt-utils/constants/documentation';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { usePods } from '@kubevirt-utils/hooks/usePods';
+import { getNamespace } from '@kubevirt-utils/resources/shared';
+import { getVMIPod } from '@kubevirt-utils/resources/vmi/utils/pod';
+import { getCluster } from '@multicluster/helpers/selectors';
+import {
+  Alert,
+  AlertVariant,
+  Checkbox,
+  ModalVariant,
+  Stack,
+  StackItem,
+} from '@patternfly/react-core';
+
+import { createRDPService } from '../utils/utils';
+
+type RDPServiceModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  vm: V1VirtualMachine;
+  vmi: V1VirtualMachineInstance;
+};
+
+const RDPServiceModal: FC<RDPServiceModalProps> = ({ isOpen, onClose, vm, vmi }) => {
+  const { t } = useKubevirtTranslation();
+  const [isChecked, setIsChecked] = useState<boolean>(false);
+
+  const [pods, podsLoaded] = usePods(getNamespace(vmi), getCluster(vmi));
+  const pod = getVMIPod(vmi, pods);
+
+  return (
+    <TabModal
+      headerText={t('RDP Service')}
+      isDisabled={!isChecked || !podsLoaded}
+      isOpen={isOpen}
+      modalVariant={ModalVariant.medium}
+      onClose={onClose}
+      onSubmit={() => createRDPService(vm, vmi, pod)}
+    >
+      <Stack hasGutter>
+        <StackItem>
+          <Checkbox
+            className="kv-rdp-service-checkbox--main"
+            data-checked-state={isChecked}
+            id="rdp-service-checkbox"
+            isChecked={isChecked}
+            label={t('Expose RDP Service')}
+            onChange={(_event, val) => setIsChecked(val)}
+          />
+        </StackItem>
+        <StackItem>
+          <Alert isInline title={t('Node port')} variant={AlertVariant.info}>
+            <div>
+              {t('RDP Service is using a node port. Node port requires additional port resources.')}
+              <div>
+                <ExternalLink href={documentationURL.NODEPORTS} text={t('Learn more')} />
+              </div>
+            </div>
+          </Alert>
+        </StackItem>
+      </Stack>
+    </TabModal>
+  );
+};
+
+export default RDPServiceModal;

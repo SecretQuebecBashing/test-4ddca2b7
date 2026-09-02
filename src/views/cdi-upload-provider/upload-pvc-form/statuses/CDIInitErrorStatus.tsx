@@ -1,0 +1,96 @@
+import React, { type FC, useState } from 'react';
+import { useNavigate } from 'react-router';
+
+import { modelToGroupVersionKind, PodModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { cancelUploadPVC } from '@kubevirt-utils/hooks/useCDIUpload/utils';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { type K8sResourceCommon, useK8sWatchResource } from '@openshift-console/dynamic-plugin-sdk';
+import {
+  Button,
+  ButtonVariant,
+  Checkbox,
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateBody,
+  Split,
+  SplitItem,
+  Stack,
+  StackItem,
+} from '@patternfly/react-core';
+import { ErrorCircleOIcon } from '@patternfly/react-icons';
+
+import { resourcePath } from '../../utils/resourceUtils';
+
+type CDIInitErrorStatus = {
+  namespace: string;
+  onErrorClick: () => void;
+  pvcName: string;
+};
+
+const CDIInitErrorStatus: FC<CDIInitErrorStatus> = ({ namespace, onErrorClick, pvcName }) => {
+  const { t } = useKubevirtTranslation();
+  const [shouldDeleteDv, setShouldDeleteDv] = useState<boolean>(true);
+  const [pod, podLoaded, podError] = useK8sWatchResource<K8sResourceCommon>({
+    groupVersionKind: modelToGroupVersionKind(PodModel),
+    name: `cdi-upload-${pvcName}`,
+    namespace,
+  }) as [K8sResourceCommon, boolean, Error];
+
+  const navigate = useNavigate();
+
+  const onClick = async (): Promise<void> => {
+    shouldDeleteDv && (await cancelUploadPVC(pvcName, namespace));
+    onErrorClick();
+  };
+
+  return (
+    <EmptyState
+      headingLevel="h4"
+      icon={ErrorCircleOIcon}
+      status="danger"
+      titleText={t('CDI Error: Could not initiate DataVolume')}
+    >
+      <EmptyStateBody>
+        <Stack hasGutter>
+          <StackItem>
+            {t(
+              'DataVolume failed to initiate upload, you can either delete the DataVolume and try again, or check logs',
+            )}
+          </StackItem>
+          <StackItem>
+            <Split>
+              <SplitItem isFilled />
+              <Checkbox
+                aria-label="kill datavolume checkbox"
+                data-checked-state={shouldDeleteDv}
+                id="approve-checkbox"
+                isChecked={shouldDeleteDv}
+                label={t('Delete DataVolume: {{pvcName}}', { pvcName })}
+                onChange={(_event, checked) => setShouldDeleteDv(checked)}
+              />
+              <SplitItem isFilled />
+            </Split>
+          </StackItem>
+        </Stack>
+      </EmptyStateBody>
+      <Button id="cdi-upload-error-btn" onClick={onClick}>
+        {shouldDeleteDv ? t('Back to form (Deletes DataVolume)') : t('Back to form')}
+      </Button>
+      {podLoaded && !podError && pod && (
+        <EmptyStateActions>
+          <Button
+            id="cdi-upload-check-logs"
+            onClick={() =>
+              navigate(`${resourcePath(PodModel, pod?.metadata?.name, namespace)}/logs`)
+            }
+            variant={ButtonVariant.link}
+          >
+            {t('Check logs')}
+          </Button>
+        </EmptyStateActions>
+      )}
+    </EmptyState>
+  );
+};
+
+export default CDIInitErrorStatus;

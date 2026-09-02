@@ -1,0 +1,68 @@
+import { TFunction } from 'i18next';
+import { FC } from 'react';
+
+import ClusterTab from './tabs/ClusterTab/ClusterTab';
+import DownloadsTab from './tabs/DownloadsTab/DownloadsTab';
+import PreviewFeaturesTab from './tabs/PreviewFeaturesTab/PreviewFeaturesTab';
+import RecommendedCapabilitiesTab from './tabs/RecommendedCapabilitiesTab/RecommendedCapabilitiesTab';
+import UserTab from './tabs/UserTab/UserTab';
+
+export const SETTINGS_TABS = {
+  CLUSTER: 'cluster',
+  DOWNLOADS: 'downloads',
+  FEATURES: 'features',
+  RECOMMENDED: 'recommended',
+  USER: 'user',
+} as const;
+
+export type SettingsTab = (typeof SETTINGS_TABS)[keyof typeof SETTINGS_TABS];
+
+export const SETTINGS_TABS_ARRAY: SettingsTab[] = Object.values(SETTINGS_TABS);
+
+export type SettingsTabConfig = {
+  Component: FC;
+  dataTest: string;
+  isEnabled: boolean;
+  isFullWidth?: boolean;
+  name: SettingsTab;
+  title: string;
+};
+
+export const getTabs = (isAdmin: boolean, t: TFunction): SettingsTabConfig[] => [
+  {
+    Component: ClusterTab,
+    dataTest: 'cluster-settings',
+    isEnabled: isAdmin,
+    name: SETTINGS_TABS.CLUSTER,
+    title: t('Cluster'),
+  },
+  {
+    Component: UserTab,
+    dataTest: 'user-settings',
+    isEnabled: true,
+    name: SETTINGS_TABS.USER,
+    title: t('User'),
+  },
+  {
+    Component: RecommendedCapabilitiesTab,
+    dataTest: 'recommended-capabilities',
+    isEnabled: isAdmin,
+    isFullWidth: true,
+    name: SETTINGS_TABS.RECOMMENDED,
+    title: t('Recommended capabilities'),
+  },
+  {
+    Component: PreviewFeaturesTab,
+    dataTest: 'preview-features',
+    isEnabled: isAdmin,
+    name: SETTINGS_TABS.FEATURES,
+    title: t('Preview features'),
+  },
+  {
+    Component: DownloadsTab,
+    dataTest: 'downloads',
+    isEnabled: true,
+    name: SETTINGS_TABS.DOWNLOADS,
+    title: t('Downloads'),
+  },
+];

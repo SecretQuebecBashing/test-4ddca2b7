@@ -1,0 +1,165 @@
+/* eslint-disable */
+import { VirtualMachineInstanceMigrationModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { VirtualMachineInstanceModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { VirtualMachineModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  V1AddVolumeOptions,
+  V1RemoveVolumeOptions,
+  V1StopOptions,
+  V1VirtualMachine,
+  V1VirtualMachineInstanceMigration,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { TELEMETRY_VM_ACTION, VMActionTelemetry } from '@kubevirt-utils/extensions/telemetry';
+import { logVMActionPerformed } from '@kubevirt-utils/extensions/telemetry/vm-actions';
+import { cancelPendingVmUploads } from '@kubevirt-utils/hooks/useUploadProgressToast/cancel/cancelPendingVmUploads';
+import { getStorageMigrationPlanModelForKind } from '@kubevirt-utils/resources/migrations/backends';
+import { MultiNamespaceVirtualMachineStorageMigrationPlan } from '@kubevirt-utils/resources/migrations/constants';
+import { getRandomChars, kubevirtConsole, truncateToK8sName } from '@kubevirt-utils/utils/utils';
+import { getCluster } from '@multicluster/helpers/selectors';
+import {
+  getKubevirtBaseAPIPath,
+  kubevirtK8sCreate,
+  kubevirtK8sDelete,
+} from '@multicluster/k8sRequests';
+import { consoleFetch, K8sModel } from '@openshift-console/dynamic-plugin-sdk';
+
+export enum VMActionType {
+  AddVolume = 'addvolume',
+  Pause = 'pause',
+  RemoveVolume = 'removevolume',
+  Reset = 'reset',
+  Restart = 'restart',
+  Start = 'start',
+  Stop = 'stop',
+  Unpause = 'unpause',
+}
+
+const logDirectVMAction = (vm: V1VirtualMachine, action: VMActionTelemetry) => {
+  logVMActionPerformed(action, vm);
+};
+
+const actionTelemetryMap: Partial<Record<VMActionType, VMActionTelemetry>> = {
+  [VMActionType.Pause]: TELEMETRY_VM_ACTION.PAUSE,
+  [VMActionType.Reset]: TELEMETRY_VM_ACTION.RESET,
+  [VMActionType.Restart]: TELEMETRY_VM_ACTION.RESTART,
+  [VMActionType.Start]: TELEMETRY_VM_ACTION.START,
+  [VMActionType.Stop]: TELEMETRY_VM_ACTION.STOP,
+  [VMActionType.Unpause]: TELEMETRY_VM_ACTION.UNPAUSE,
+};
+
+export const VMActionRequest = async (
+  vm: V1VirtualMachine,
+  action: VMActionType,
+  model: K8sModel,
+  body?: V1AddVolumeOptions | V1RemoveVolumeOptions | V1StopOptions,
+) => {
+  const {
+    metadata: { name, namespace },
+  } = vm;
+
+  try {
+    const k8sAPIPath = await getKubevirtBaseAPIPath(getCluster(vm));
+    // TODO: when this bz resolves https://bugzilla.redhat.com/show_bug.cgi?id=2056656
+    // we can do the call to k8sUpdate instead of consoleFetch
+
+    // const promise = await k8sUpdate({
+    //   model: { ...VirtualMachineModel, apiGroup: `subresources.${VirtualMachineModel.apiGroup}` },
+    //   data: vm,
+    //   ns: namespace,
+    //   name,
+    //   path: action,
+    // });
+    // Promise.resolve(promise);
+    const url = `${k8sAPIPath}/apis/subresources.${model.apiGroup}/${model.apiVersion}/namespaces/${namespace}/${model.plural}/${name}/${action}`;
+
+    const response = await consoleFetch(url, {
+      body: body ? JSON.stringify(body) : undefined,
+      method: 'PUT',
+    });
+
+    const telemetryAction = actionTelemetryMap[action];
+    if (telemetryAction) {
+      logDirectVMAction(vm, telemetryAction);
+    }
+
+    return response.text();
+  } catch (error) {
+    kubevirtConsole.error(error);
+    return;
+  }
+};
+
+export const startVM = async (vm: V1VirtualMachine) =>
+  VMActionRequest(vm, VMActionType.Start, VirtualMachineModel);
+export const stopVM = async (vm: V1VirtualMachine, body?: V1StopOptions) =>
+  VMActionRequest(vm, VMActionType.Stop, VirtualMachineModel, body);
+export const restartVM = async (vm: V1VirtualMachine) =>
+  VMActionRequest(vm, VMActionType.Restart, VirtualMachineModel);
+export const resetVM = async (vm: V1VirtualMachine) =>
+  VMActionRequest(vm, VMActionType.Reset, VirtualMachineInstanceModel);
+export const pauseVM = async (vm: V1VirtualMachine) =>
+  VMActionRequest(vm, VMActionType.Pause, VirtualMachineInstanceModel);
+export const unpauseVM = async (vm: V1VirtualMachine) =>
+  VMActionRequest(vm, VMActionType.Unpause, VirtualMachineInstanceModel);
+export const addPersistentVolume = async (vm: V1VirtualMachine, body: V1AddVolumeOptions) =>
+  VMActionRequest(vm, VMActionType.AddVolume, VirtualMachineModel, body);
+export const removeVolume = async (vm: V1VirtualMachine, body: V1RemoveVolumeOptions) =>
+  VMActionRequest(vm, VMActionType.RemoveVolume, VirtualMachineModel, body);
+export const migrateVM = async (vm: V1VirtualMachine, node?: string) => {
+  const { name, namespace } = vm?.metadata;
+
+  const migrationData: V1VirtualMachineInstanceMigration = {
+    apiVersion: 'kubevirt.io/v1',
+    kind: 'VirtualMachineInstanceMigration',
+    metadata: {
+      name: truncateToK8sName(name, `mig-${getRandomChars(4)}`),
+    },
+    spec: {
+      vmiName: name,
+    },
+  };
+
+  if (node) migrationData.spec.addedNodeSelector = { 'kubernetes.io/hostname': node };
+
+  await kubevirtK8sCreate({
+    cluster: getCluster(vm),
+    data: migrationData,
+    model: VirtualMachineInstanceMigrationModel,
+    ns: namespace,
+  });
+};
+
+export const cancelMigration = async (vmim: V1VirtualMachineInstanceMigration) => {
+  await kubevirtK8sDelete({
+    cluster: vmim?.cluster,
+    model: VirtualMachineInstanceMigrationModel,
+    resource: vmim,
+  });
+};
+
+export const cancelStorageMigrationPlan = async (
+  vm: V1VirtualMachine,
+  plan: MultiNamespaceVirtualMachineStorageMigrationPlan,
+) => {
+  const model = getStorageMigrationPlanModelForKind(plan?.kind);
+
+  await kubevirtK8sDelete({
+    cluster: getCluster(plan) ?? getCluster(vm),
+    model,
+    resource: plan,
+  });
+};
+
+export const deleteVM = async (vm: V1VirtualMachine) => {
+  try {
+    await cancelPendingVmUploads(vm);
+  } catch (error) {
+    kubevirtConsole.error('Failed to cancel pending uploads for VM before deletion:', error);
+  }
+
+  await kubevirtK8sDelete({
+    cluster: getCluster(vm),
+    model: VirtualMachineModel,
+    resource: vm,
+  });
+};

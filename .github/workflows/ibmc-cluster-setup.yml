@@ -1,0 +1,567 @@
+name: IBM Cloud Hot Cluster Setup
+run-name: "Hot Cluster Setup [${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}] @ ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      infrastructure_type:
+        description: 'Infrastructure type'
+        required: true
+        default: 'vpc'
+        type: choice
+        options:
+          - vpc
+          - classic
+          - ipi
+      cluster_name:
+        description: 'Cluster name (max 21 chars — IBM Cloud IPI limit, longer names get silently truncated)'
+        required: true
+        default: 'kubevirt-plugin-ci'
+        type: string
+      zone:
+        description: 'Zone (classic: wdc04, fra02; vpc/ipi: us-south-1, eu-de-1)'
+        required: true
+        default: 'us-south-1'
+        type: string
+      openshift_version:
+        description: 'OpenShift version (e.g. 4.21_openshift)'
+        required: true
+        default: '4.21_openshift'
+        type: string
+      worker_flavor:
+        description: 'Worker node flavor (classic: mb4c.4x32; vpc/ipi: bx2.8x32)'
+        required: true
+        default: 'bx2.8x32'
+        type: string
+      worker_count:
+        description: 'Number of worker nodes (at least 2 so ingress is happy)'
+        required: true
+        default: '2'
+        type: string
+      max_runners:
+        description: 'Max concurrent ARC runner pods for this cluster (caps concurrent E2E + manual-console jobs; extra jobs queue)'
+        required: true
+        default: '2'
+        type: string
+      kvm_emulation:
+        description: 'KVM emulation (true for vpc/shared, false for bare metal)'
+        required: true
+        default: true
+        type: boolean
+      cos_instance_crn:
+        description: 'COS instance CRN for VPC internal registry (auto-created if empty)'
+        required: false
+        default: ''
+        type: string
+      cnv_channel:
+        description: 'CNV OLM subscription channel (e.g. stable, stable-4.17)'
+        required: false
+        default: 'stable'
+        type: string
+      cnv_pin_version:
+        description: |
+          "<major>.<minor>" to pin CNV to the newest matching CSV within
+          cnv_channel via startingCSV. Leave empty to install whatever
+          cnv_channel currently resolves to. If set and no matching CSV is
+          found in the channel's entries, install-hco.sh fails the build
+          rather than silently falling back to an unpinned/newer install --
+          pass an explicit cnv_channel instead to opt into that.
+        required: false
+        default: ''
+        type: string
+      branch_name:
+        description: |
+          Branch identity to report in the "Hot cluster ready" Slack
+          notification. Leave empty for a direct manual dispatch -- falls
+          back to github.ref_name (the branch this run itself is on).
+        required: false
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      infrastructure_type:
+        description: 'Infrastructure type'
+        required: false
+        default: 'vpc'
+        type: string
+      cluster_name:
+        description: 'Cluster name (max 21 chars — IBM Cloud IPI limit, longer names get silently truncated)'
+        required: false
+        default: 'kubevirt-plugin-ci'
+        type: string
+      zone:
+        description: 'Zone (classic: wdc04, fra02; vpc/ipi: us-south-1, eu-de-1)'
+        required: false
+        default: 'us-south-1'
+        type: string
+      openshift_version:
+        description: 'OpenShift version (e.g. 4.21_openshift)'
+        required: false
+        default: '4.21_openshift'
+        type: string
+      worker_flavor:
+        description: 'Worker node flavor (classic: mb4c.4x32; vpc/ipi: bx2.8x32)'
+        required: false
+        default: 'bx2.8x32'
+        type: string
+      worker_count:
+        description: 'Number of worker nodes (at least 2 so ingress is happy)'
+        required: false
+        default: '2'
+        type: string
+      max_runners:
+        description: 'Max concurrent ARC runner pods for this cluster (caps concurrent E2E + manual-console jobs; extra jobs queue)'
+        required: false
+        default: '2'
+        type: string
+      kvm_emulation:
+        description: 'KVM emulation (true for vpc/shared, false for bare metal)'
+        required: false
+        default: true
+        type: boolean
+      cos_instance_crn:
+        description: 'COS instance CRN for VPC internal registry (auto-created if empty)'
+        required: false
+        default: ''
+        type: string
+      cnv_channel:
+        description: 'CNV OLM subscription channel (e.g. stable, stable-4.17)'
+        required: false
+        default: 'stable'
+        type: string
+      cnv_pin_version:
+        description: |
+          "<major>.<minor>" to pin CNV to the newest matching CSV within
+          cnv_channel via startingCSV. Leave empty to install whatever
+          cnv_channel currently resolves to. If set and no matching CSV is
+          found in the channel's entries, install-hco.sh fails the build
+          rather than silently falling back to an unpinned/newer install --
+          pass an explicit cnv_channel instead to opt into that.
+        required: false
+        default: ''
+        type: string
+      branch_name:
+        description: |
+          Branch identity to report in the "Hot cluster ready" Slack
+          notification (main/release-4.X, or a plain branch name). Falls
+          back to github.ref_name when left empty.
+        required: false
+        default: ''
+        type: string
+    secrets:
+      IC_KEY:
+        required: true
+      OPENSHIFT_PULL_SECRET:
+        required: false
+      ARC_GITHUB_APP_ID:
+        required: false
+      ARC_GITHUB_APP_INSTALL_ID:
+        required: false
+      ARC_GITHUB_APP_PRIVATE_KEY:
+        required: false
+      ARC_GITHUB_PAT:
+        required: false
+      CLUSTER_ADMIN_PASSWORD:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  CLUSTER_NAME: ${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}
+  INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type || 'vpc' }}
+  # IBM_REGION is the account/API targeting region (not where resources are created).
+  # VPC/IPI steps target the deployment region dynamically from the zone input.
+  IBM_REGION: eu-de
+  IBM_RESOURCE_GROUP: cnv-ui
+  BASE_DOMAIN: cnv-ui.com
+  CONTROL_PLANE_FLAVOR: bx2-4x16
+
+jobs:
+  # Re-probes cluster existence after any caller's concurrency lock is
+  # acquired, so a PR queued behind an already-finished build skips
+  # instead of racing into a duplicate one.
+  precheck:
+    name: Check if Cluster Already Exists
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      already_ready: ${{ steps.probe.outputs.already_ready }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install TS dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Probe for cluster
+        id: probe
+        env:
+          CLUSTER_NAME: ${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}
+          INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type || 'vpc' }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/probe-cluster-dns.ts
+
+  provision-cluster:
+    name: Provision OpenShift Cluster
+    needs: precheck
+    if: needs.precheck.outputs.already_ready != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install TS dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Validate cluster_name format
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/validate-cluster-name.ts
+
+      - name: Setup IBM Cloud CLI
+        uses: IBM/actions-ibmcloud-cli@v2
+        with:
+          api_key: ${{ secrets.IC_KEY }}
+          region: ${{ env.IBM_REGION }}
+          group: ${{ env.IBM_RESOURCE_GROUP }}
+          plugins: kubernetes-service, container-registry, vpc-infrastructure
+
+      - name: Log IBM Cloud IAM diagnostics
+        id: iam_diagnostics
+        continue-on-error: true
+        env:
+          WORKER_ZONE: ${{ inputs.zone }}
+          INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type || 'vpc' }}
+        run: bash ./ci-scripts/hot-cluster/log-ibmcloud-iam-diagnostics.sh
+
+      - name: Upload IAM diagnostics log
+        if: always() && steps.iam_diagnostics.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: ibmcloud-iam-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/ibmcloud-iam-diagnostics.txt
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Clean up stale IPI resources for this cluster name
+        if: inputs.infrastructure_type == 'ipi'
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          ZONE: ${{ inputs.zone }}
+        continue-on-error: true
+        run: bash ./ci-scripts/hot-cluster/cleanup-vpc-resources.sh
+
+      - name: Check for existing ROKS cluster
+        if: inputs.infrastructure_type != 'ipi'
+        id: check_cluster
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/check-roks-cluster.ts
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Classic infrastructure path
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Verify zone and flavor (classic)
+        if: steps.check_cluster.outputs.exists == 'false' && inputs.infrastructure_type == 'classic'
+        env:
+          ZONE: ${{ inputs.zone }}
+          FLAVOR: ${{ inputs.worker_flavor }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/verify-zone-flavor-classic.ts
+
+      - name: Create ROKS cluster (classic)
+        if: steps.check_cluster.outputs.exists == 'false' && inputs.infrastructure_type == 'classic'
+        env:
+          ZONE: ${{ inputs.zone }}
+          OPENSHIFT_VERSION: ${{ inputs.openshift_version }}
+          WORKER_FLAVOR: ${{ inputs.worker_flavor }}
+          WORKER_COUNT: ${{ inputs.worker_count }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/create-roks-classic.ts
+
+      # ──────────────────────────────────────────────────────────────────────
+      # VPC Gen2 infrastructure path
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Provision VPC resources
+        if: steps.check_cluster.outputs.exists == 'false' && inputs.infrastructure_type == 'vpc'
+        id: vpc_resources
+        env:
+          ZONE: ${{ inputs.zone }}
+          VPC_NAME: ${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}-vpc
+        run: bash ./ci-scripts/hot-cluster/provision-vpc-resources.sh
+
+      - name: Create ROKS cluster (vpc)
+        if: steps.check_cluster.outputs.exists == 'false' && inputs.infrastructure_type == 'vpc'
+        env:
+          ZONE: ${{ inputs.zone }}
+          VPC_ID: ${{ steps.vpc_resources.outputs.vpc_id }}
+          SUBNET_ID: ${{ steps.vpc_resources.outputs.subnet_id }}
+          COS_CRN: ${{ inputs.cos_instance_crn }}
+          COS_INSTANCE_NAME: ${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}-cos
+          OPENSHIFT_VERSION: ${{ inputs.openshift_version }}
+          WORKER_FLAVOR: ${{ inputs.worker_flavor }}
+          WORKER_COUNT: ${{ inputs.worker_count }}
+          CNI_PLUGIN: OVNKubernetes
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/create-roks-vpc.ts
+
+      # ──────────────────────────────────────────────────────────────────────
+      # IPI (self-managed OpenShift) path
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Install openshift-install, oc, and ccoctl
+        if: inputs.infrastructure_type == 'ipi'
+        id: ipi_tools
+        env:
+          OC_VERSION_INPUT: ${{ inputs.openshift_version }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/install-ipi-tools.ts
+
+      - name: Generate IPI install-config
+        if: inputs.infrastructure_type == 'ipi'
+        env:
+          ZONE: ${{ inputs.zone }}
+          PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
+          WORKER_FLAVOR: ${{ inputs.worker_flavor }}
+          WORKER_COUNT: ${{ inputs.worker_count }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/generate-ipi-install-config.ts
+
+      - name: Create IPI cluster (with retry)
+        id: ipi_create
+        if: inputs.infrastructure_type == 'ipi'
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          INSTALL_DIR: ${{ runner.temp }}/ipi-install
+          WORKER_COUNT: ${{ inputs.worker_count }}
+          WORKER_FLAVOR: ${{ inputs.worker_flavor }}
+          # Needed so create-ipi-cluster.sh's retry-sweep can re-target the
+          # CLI to the right VPC region (not the eu-de account region).
+          ZONE: ${{ inputs.zone }}
+        run: bash ./ci-scripts/hot-cluster/create-ipi-cluster.sh
+
+      - name: IPI post-install DNS diagnostics
+        if: inputs.infrastructure_type == 'ipi' && always()
+        continue-on-error: true
+        env:
+          INSTALL_DIR: ${{ runner.temp }}/ipi-install
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/ipi-dns-diagnostics.ts
+
+      - name: Upload IPI install artifacts
+        if: inputs.infrastructure_type == 'ipi' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ipi-install-state-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ipi-install/metadata.json
+            ${{ runner.temp }}/ipi-install/.openshift_install.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Common bootstrap steps (all paths converge here)
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Wait for ROKS cluster ready
+        if: inputs.infrastructure_type != 'ipi'
+        run: ./ci-scripts/hot-cluster/check-roks-cluster-state.sh
+
+      - name: Install oc client
+        if: inputs.infrastructure_type != 'ipi'
+        run: |
+          export CLUSTER_JSON="$(ibmcloud oc cluster get --cluster "${CLUSTER_NAME}" --output json)"
+          bash ./ci-scripts/hot-cluster/install-oc-client.sh
+
+      - name: Configure kubeconfig
+        env:
+          OCP_CHANNEL: ${{ steps.ipi_tools.outputs.ocp_channel }}
+          INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type || 'vpc' }}
+        run: bash ./ci-scripts/hot-cluster/configure-kubeconfig.sh
+
+      - name: Open ingress LB security group for public access
+        if: inputs.infrastructure_type == 'ipi'
+        env:
+          INSTALL_DIR: ${{ runner.temp }}/ipi-install
+          ZONE: ${{ inputs.zone }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/open-ingress-lb-sg.ts
+
+      - name: Detect KVM support
+        id: kvm_check
+        env:
+          KVM_EMULATION_INPUT: ${{ inputs.kvm_emulation }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/detect-kvm-support.ts
+
+      - name: Install OpenShift Virtualization (CNV)
+        id: install_cnv
+        env:
+          KVM_EMULATION: ${{ steps.kvm_check.outputs.kvm_emulation || inputs.kvm_emulation }}
+          CNV_CHANNEL: ${{ inputs.cnv_channel || 'stable' }}
+          CNV_PIN_VERSION: ${{ inputs.cnv_pin_version }}
+        run: |
+          echo "KVM_EMULATION=${KVM_EMULATION} (auto-detected)"
+          echo "CNV_CHANNEL=${CNV_CHANNEL}"
+          echo "CNV_PIN_VERSION=${CNV_PIN_VERSION:-<none, unpinned>}"
+          ./ci-scripts/hot-cluster/install-hco.sh
+
+      - name: Configure internal image registry
+        run: bash ./ci-scripts/hot-cluster/configure-image-registry.sh
+
+      - name: Verify ARC secrets
+        env:
+          ARC_GITHUB_APP_ID: ${{ secrets.ARC_GITHUB_APP_ID }}
+          ARC_GITHUB_APP_INSTALL_ID: ${{ secrets.ARC_GITHUB_APP_INSTALL_ID }}
+          ARC_GITHUB_APP_PRIVATE_KEY: ${{ secrets.ARC_GITHUB_APP_PRIVATE_KEY }}
+          ARC_GITHUB_PAT: ${{ secrets.ARC_GITHUB_PAT }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/verify-arc-secrets.ts
+
+      - name: Build ARC runner image
+        id: build_runner
+        env:
+          ARC_RUNNER_IMAGE_FILE: ${{ runner.temp }}/arc-runner-image-ref.txt
+        run: |
+          OC_VERSION="${{ inputs.openshift_version || '4.21_openshift' }}"
+          export OC_VERSION="${OC_VERSION%%_*}"
+          ./ci-scripts/hot-cluster/images/setup-arc-runner-image.sh
+          IMAGE_REF=$(cat "$ARC_RUNNER_IMAGE_FILE")
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Install ARC
+        env:
+          ARC_CONFIG_URL: 'https://github.com/${{ github.repository }}'
+          ARC_APP_ID: ${{ secrets.ARC_GITHUB_APP_ID }}
+          ARC_APP_INSTALL_ID: ${{ secrets.ARC_GITHUB_APP_INSTALL_ID }}
+          ARC_APP_PRIVATE_KEY: ${{ secrets.ARC_GITHUB_APP_PRIVATE_KEY }}
+          ARC_PAT: ${{ secrets.ARC_GITHUB_PAT }}
+          ARC_RUNNER_IMAGE: ${{ steps.build_runner.outputs.image_ref }}
+          ARC_VERSION: '0.14.0'
+          RUNNER_SCALE_SET_NAME: ${{ env.CLUSTER_NAME }}
+          MAX_RUNNERS: ${{ inputs.max_runners }}
+        run: |
+          ./ci-scripts/hot-cluster/arc/install-arc-controller.sh && \
+          ./ci-scripts/hot-cluster/arc/install-runner-scale-set.sh
+
+      - name: Bootstrap manual-console RBAC
+        # Optional feature; E2E does not depend on it. continue-on-error so
+        # a hiccup here never fails the multi-hour provisioning job.
+        continue-on-error: true
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ env.CLUSTER_NAME }}
+        run: ./ci-scripts/manual-console/install-manual-console-rbac.sh
+
+      - name: Install CI environment controller
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ env.CLUSTER_NAME }}
+        run: ./ci-scripts/hot-cluster/ci-env/install-ci-env-controller.sh
+
+      - name: Verify cluster health
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./ci-scripts/hot-cluster/check-cluster-health.sh
+
+      # Optional: create an htpasswd admin user for ROKS clusters (no kubeadmin).
+      # Set CLUSTER_ADMIN_PASSWORD secret to enable. Not needed for IPI.
+      # NOTE: VPC ROKS with hosted control plane locks the OAuth CR via
+      # ValidatingAdmissionPolicy -- htpasswd cannot be applied directly.
+      # The step is continue-on-error so it never blocks provisioning.
+      - name: Create console admin user (ROKS)
+        if: inputs.infrastructure_type != 'ipi' && env.ADMIN_PASSWORD != ''
+        continue-on-error: true
+        env:
+          ADMIN_PASSWORD: ${{ secrets.CLUSTER_ADMIN_PASSWORD }}
+        run: |
+          if ! command -v htpasswd &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq apache2-utils
+          fi
+
+          echo "::add-mask::${ADMIN_PASSWORD}"
+          echo "Creating htpasswd identity provider with admin user..."
+          HTPASSWD=$(htpasswd -nbB admin "${ADMIN_PASSWORD}")
+
+          oc create secret generic htpass-secret \
+            --from-literal=htpasswd="${HTPASSWD}" \
+            -n openshift-config --dry-run=client -o yaml | oc apply -f -
+
+          if ! oc apply -f - <<'OAUTH_EOF'
+          apiVersion: config.openshift.io/v1
+          kind: OAuth
+          metadata:
+            name: cluster
+          spec:
+            identityProviders:
+            - name: htpasswd
+              mappingMethod: claim
+              type: HTPasswd
+              htpasswd:
+                fileData:
+                  name: htpass-secret
+          OAUTH_EOF
+          then
+            echo "::warning::Cannot modify OAuth CR -- this is expected on VPC ROKS (hosted control plane manages OAuth via ValidatingAdmissionPolicy). Console login with htpasswd is not available; use IAM or kubeconfig instead."
+            exit 0
+          fi
+
+          oc adm policy add-cluster-role-to-user cluster-admin admin 2>&1 || true
+
+          echo "Waiting for OAuth pods to roll out..."
+          oc rollout status deployment/oauth-openshift -n openshift-authentication --timeout=120s 2>&1 || echo "::warning::OAuth rollout did not complete within 120s"
+          echo "Console admin user created. Login with username 'admin'."
+
+      - name: Send credentials to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ADMIN_PASSWORD: ${{ secrets.CLUSTER_ADMIN_PASSWORD }}
+          INSTALL_DIR: ${{ runner.temp }}/ipi-install
+          # inputs.branch_name is threaded down from hot-cluster-e2e.yml's
+          # prepare job; falls back to this run's own ref_name for a direct
+          # dispatch of just this workflow.
+          BRANCH_NAME: ${{ inputs.branch_name || github.ref_name }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/send-cluster-credentials-slack.ts
+
+      - name: Delete ROKS cluster on failure
+        if: always() && inputs.infrastructure_type != 'ipi' && job.status == 'failure' && steps.check_cluster.outputs.exists == 'false'
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/delete-roks-cluster.ts
+
+      - name: Destroy IPI cluster on failure
+        if: always() && inputs.infrastructure_type == 'ipi' && job.status == 'failure'
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          INSTALL_DIR: ${{ runner.temp }}/ipi-install
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/destroy-ipi-cluster.ts
+
+      # Backstop sweep: openshift-install destroy above isn't guaranteed to
+      # fully clean up, so run this unconditionally regardless of it.
+      - name: Sweep any remaining VPC resources on failure
+        if: always() && inputs.infrastructure_type == 'ipi' && job.status == 'failure'
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          ZONE: ${{ inputs.zone }}
+        continue-on-error: true
+        run: bash ./ci-scripts/hot-cluster/cleanup-vpc-resources.sh
+
+      - name: Setup summary
+        if: always()
+        env:
+          INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type || 'vpc' }}
+          ZONE: ${{ inputs.zone }}
+          OPENSHIFT_VERSION: ${{ inputs.openshift_version }}
+          WORKER_FLAVOR: ${{ inputs.worker_flavor }}
+          WORKER_COUNT: ${{ inputs.worker_count }}
+          KVM_EMULATION: ${{ inputs.kvm_emulation }}
+          CNV_CHANNEL: ${{ inputs.cnv_channel || 'stable' }}
+          CNV_PIN_VERSION_REQUESTED: ${{ inputs.cnv_pin_version || 'unpinned' }}
+          # Resolved live by install-hco.sh; distinct from the requested pin
+          # above so a failed pin never looks "pinned" -- check job status
+          # if this shows the fallback text.
+          CNV_INSTALLED_CSV: ${{ steps.install_cnv.outputs.starting_csv || 'unpinned, or pin failed -- check job status' }}
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/write-setup-summary.ts

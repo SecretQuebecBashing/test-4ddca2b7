@@ -1,0 +1,37 @@
+**/node_modules
+.npm-cache
+.tmp
+.tmp-plugin-cert.*/
+npm-debug.log
+dist
+**/.env
+.env.local
+/coverage
+/gui-test-screenshots
+# Playwright - ignore all test results (artifacts, traces, reports)
+playwright/test-results/
+allure-results/
+playwright/.auth/
+.playwright-mcp
+.kubeconfigs/
+.storage-states/
+.test-configs/
+.test-data/
+.DS_Store
+.devcontainer/dev.env
+console-extensions.md
+.idea/
+scripts/ca.crt
+scripts/console-client-secret
+*.json-*
+*.env
+ci-scripts/_
+ci-scripts/_ci_tools
+ci-scripts/generated/
+
+# Personal Cursor rules (not shared with team)
+.cursor/rules/personal-*.mdc
+test-results/
+
+# Ignore Claude Code local settings
+.claude/settings.local.json

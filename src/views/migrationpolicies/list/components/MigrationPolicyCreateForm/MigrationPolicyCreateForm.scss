@@ -1,0 +1,22 @@
+.migration-policy__form {
+  &-config-dropdown {
+    min-width: fit-content;
+    width: 50%;
+  }
+  &-body {
+    margin: var(--pf-t--global--spacer--lg) 0 0;
+    padding: 0 var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--lg);
+    padding-left: var(--pf-t--global--spacer--lg);
+    padding-right: var(--pf-t--global--spacer--lg);
+  }
+  &-header {
+    margin-top: var(--pf-t--global--spacer--lg);
+    padding: 0 var(--pf-t--global--spacer--lg);
+    align-items: baseline;
+    display: flex;
+    justify-content: space-between;
+  }
+  &-header-link {
+    font-size: var(--pf-t--global--font--size--md);
+  }
+}

@@ -1,0 +1,65 @@
+import { getNamespace } from '@kubevirt-utils/resources/shared';
+import {
+  getTemplateModel,
+  isOpenShiftTemplate,
+  Template,
+} from '@kubevirt-utils/resources/template';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { useFleetAccessReview } from '@stolostron/multicluster-sdk';
+
+import { isCommonVMTemplate } from '../../utils/utils';
+
+/**
+ * This hook checks the user capabilities of editing templates in a namespace.
+ * Checks user permissions and template characteristics.
+ * The hook does not check if the user has permissions for that particular template
+ * as this behavior would compromise performarce in pages were a lot of templates are involved like template list.
+ * @param template template to check
+ * @returns boolean value
+ */
+const useEditTemplateAccessReview = (
+  template: Template,
+): {
+  hasEditPermission: boolean;
+  isCommonTemplate: boolean;
+  isLoading: boolean;
+  isTemplateEditable: boolean;
+} => {
+  const isCommonTemplate = isOpenShiftTemplate(template) && isCommonVMTemplate(template);
+  const model = getTemplateModel(template);
+  const accessReviewOptions = {
+    cluster: getCluster(template),
+    group: model.apiGroup,
+    namespace: getNamespace(template),
+    resource: model.plural,
+  };
+
+  const [canUpdateTemplate, canUpdateLoading] = useFleetAccessReview({
+    ...accessReviewOptions,
+    verb: 'update',
+  });
+
+  const [canPatchTemplate, canPatchLoading] = useFleetAccessReview({
+    ...accessReviewOptions,
+    verb: 'patch',
+  });
+
+  const hasEditPermission = canUpdateTemplate && canPatchTemplate;
+
+  if (!template || canUpdateLoading || canPatchLoading)
+    return {
+      hasEditPermission: false,
+      isCommonTemplate,
+      isLoading: true,
+      isTemplateEditable: false,
+    };
+
+  return {
+    hasEditPermission,
+    isCommonTemplate,
+    isLoading: canUpdateLoading || canPatchLoading,
+    isTemplateEditable: !isCommonTemplate && hasEditPermission,
+  };
+};
+
+export default useEditTemplateAccessReview;

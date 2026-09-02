@@ -1,0 +1,216 @@
+---
+description: CI failure triage - analyze Prow build failures, classify them, and retest
+alwaysApply: false
+---
+
+# CI Triage Workflow
+
+Invoked by the `/triage` command or by the babysit skill when CI fails.
+
+Analyze a failed CI job for a kubevirt-plugin PR, classify the failure, and take the appropriate action.
+
+## Input
+
+The caller provides one of:
+- A PR number
+- A Prow build URL
+- A GitHub PR URL
+- Nothing (detect from current branch)
+
+## Steps
+
+### 1. Fetch failure data
+
+Use the Prow MCP (`user-prow`) tools in parallel:
+
+- `diagnose_pr_failures` with `pr_number`, `org_repo="kubevirt-ui_kubevirt-plugin"`
+- `analyze_build_step_failures` with `job_name` and `build_id` extracted from the Prow URL or from the `diagnose_pr_failures` output
+
+If the user provided a raw build URL, extract `job_name` and `build_id` from the URL path segments.
+
+### 2. Classify the failure
+
+Match the failure output against the three categories using the patterns below:
+
+- **INFRASTRUCTURE**: Registry timeouts, image pull failures, cluster provisioning errors, network flakes, Docker build container errors. These are transient and safe to retest.
+- **CODE**: TypeScript/webpack build errors, lint failures, unit test failures, e2e test assertion failures. These require developer action.
+- **FLAKY_TEST**: Known intermittent test failures, timeout-only failures in test steps.
+
+When classifying:
+- Check the build step that failed (e.g. `DockerBuildFailed`, `test step failed`)
+- Look at the error message in context — a `connection refused` during cluster setup is INFRA, but during a test is FLAKY
+- If multiple patterns match, prefer the most specific one
+
+### 3. Report the result
+
+Present a structured summary to the user:
+
+```
+## CI Triage: PR #XXXX
+
+**Classification**: <one of INFRASTRUCTURE, CODE, or FLAKY_TEST>
+**Failed job(s)**: <job name(s)>
+**Root cause**: <one-line description>
+
+### Log excerpt
+<relevant 5-10 lines from the build log>
+
+### Recommended action
+<what to do next>
+```
+
+### 4. Take action (if appropriate)
+
+**Counting retests:** Use the GitHub MCP (`user-github`) `pull_request_read` (method: `get_comments`) to search for comments containing the full marker for the classification being counted (e.g. `<!-- ci-triage: INFRASTRUCTURE -->`) and the current HEAD SHA. Count ANY matching comment regardless of author — an automated GitHub Action (`ci_retest.yml`) may have already posted retest comments for this SHA. Allowed classification markers: `INFRASTRUCTURE`, `INFRASTRUCTURE_EXHAUSTED`, `FLAKY_TEST`.
+
+**For INFRASTRUCTURE failures:**
+1. If the log contains `rate limit exceeded` or `429 Too Many Requests`, classify as INFRASTRUCTURE but advise waiting at least 15 minutes before retesting.
+2. If fewer than 5 retests for this SHA, offer to post `/retest` via `add_issue_comment`
+3. Always include the classification in the comment so there's an audit trail:
+
+```
+<!-- ci-triage: INFRASTRUCTURE -->
+CI Triage: **Infrastructure failure** — <root cause summary>
+
+/retest
+```
+
+4. If 5 or more retests already exist, report that max retries are exhausted and the user should investigate further or wait
+
+**For CODE failures:**
+- Report the root cause and affected files
+- Do NOT offer to retest
+- If invoked from the babysit workflow, suggest specific fixes
+
+**For FLAKY_TEST failures:**
+1. Check if a `<!-- ci-triage: FLAKY_TEST -->` comment already exists for the current HEAD SHA
+2. If it does NOT exist, offer to post `/retest` with this tracking comment:
+
+```
+<!-- ci-triage: FLAKY_TEST -->
+CI Triage: **Flaky test detected** — <root cause summary>. Retesting once.
+
+/retest
+```
+
+3. If it DOES exist, do NOT retest. Flag it as a persistently failing test that requires investigation.
+
+## MCP Tools Reference
+
+| Tool | Server | When to use |
+|------|--------|-------------|
+| `diagnose_pr_failures` | `user-prow` | First call — broad failure analysis for a PR |
+| `analyze_build_step_failures` | `user-prow` | Second call — step-by-step breakdown of a specific build |
+| `get_build_logs` | `user-prow` | When you need raw log content for pattern matching |
+| `get_recent_job_status` | `user-prow` | To check recent job run history |
+| `pull_request_read` | `user-github` | To read PR comments (count retries, check labels) |
+| `add_issue_comment` | `user-github` | To post `/retest` + classification comment |
+
+## Repository defaults
+
+- `org_repo`: `kubevirt-ui_kubevirt-plugin`
+- Primary Prow job: `pull-ci-kubevirt-ui-kubevirt-plugin-main-kubevirt-e2e-aws`
+- When only one job context failed, use `/test <job-name>` instead of `/retest` for a targeted rerun
+
+---
+
+## Automation contract
+
+The GitHub Actions workflow `ci_retest.yml` uses the same infrastructure patterns listed below to auto-retest. Both this rule and the workflow must stay in sync — the workflow is the automated subset that handles only INFRASTRUCTURE classification. It uses the 7-character short SHA in backticks within `<!-- ci-triage: INFRASTRUCTURE -->` HTML comments for counting retests.
+
+In PR comments, prefer sentence case for classification labels (e.g. "Infrastructure failure" rather than "INFRASTRUCTURE"). Use the machine tokens only in the HTML audit markers.
+
+## Failure Classification Patterns
+
+### Infrastructure (safe to auto-retest)
+
+**Registry failures:**
+- `received unexpected HTTP status: 50[0-9]` — HTTP 5xx from container registry
+- `504 Gateway Timeout` — Gateway timeout pulling images
+- `503 Service Unavailable` — Registry temporarily unavailable
+- `registry\.access\.redhat\.com.*error` — Red Hat registry connectivity issue
+- `quay\.io.*error` — Quay registry connectivity issue
+
+**Image pull failures:**
+- `ErrImagePull` — Kubernetes failed to pull image
+- `ImagePullBackOff` — Kubernetes image pull backoff
+- `manifest unknown` — Image manifest not found (usually transient registry issue; verify the tag/digest is correct before retesting, as a wrong tag is a CODE failure)
+- `failed to resolve reference` — Image reference resolution failure
+- `creating build container: initializing source` — Build container image pull failure
+
+**Cluster provisioning failures:**
+- `could not acquire lease` — CI cluster lease unavailable
+- `cluster creation timed out` — Cluster provisioning timeout
+- `failed to create cluster` — Cluster creation failure
+- `waiting for cluster to initialize.*timed out` — Cluster init timeout
+- `infrastructure setup failed` — Generic infra setup failure
+
+**Node/resource failures:**
+- `NodeNotReady` — Kubernetes node not ready
+- `insufficient resources` — Not enough cluster resources
+- `Insufficient cpu` / `Insufficient memory` — Resource exhaustion
+
+**Network failures (during setup):**
+- `connection refused.*setup|provision|install` — Network failure during cluster setup
+- `i/o timeout.*setup|provision|install` — I/O timeout during cluster setup
+- `dial tcp.*connection refused` — TCP connection refused (infra)
+- `TLS handshake timeout` — TLS timeout during setup
+
+**GCS / CI infrastructure:**
+- `storage\.googleapis\.com.*error` — GCS storage error
+- `failed to upload.*artifact` — Artifact upload failure
+
+**Docker build (infra-related):**
+- `DockerBuildFailed.*initializing source` — Docker build failed due to image source init
+- `error building.*creating build container` — Build container creation error
+
+### Code (do NOT retest)
+
+**Dependency / Package manager:**
+- `npm ERR!` — NPM installation or script error
+- `ERESOLVE` — NPM dependency resolution conflict
+- `peer dep missing` — Missing peer dependency
+- `ETIMEDOUT` / `ECONNRESET` (during `npm install`) — Registry connectivity during install (may need lockfile update or cache clear)
+
+**TypeScript / Webpack:**
+- `TS\d{4}:` — TypeScript compiler error
+- `Module not found:` — Missing module import
+- `SyntaxError:` — JavaScript/TypeScript syntax error
+- `ERROR in .*\.tsx?` — Webpack error in TS/TSX file
+- `Cannot find module` — Missing module resolution
+- `Type '.*' is not assignable to type` — TypeScript type mismatch
+
+**Lint:**
+- `eslint.*error` — ESLint error
+- `lint:fix.*diff` — Lint autofix produced diff
+- `stylelint.*error` — Stylelint error
+- `prettier.*--check.*failed` — Prettier formatting check failure
+
+**Unit test:**
+- `FAIL\s+src/` — Jest test failure
+- `Test Suites:.*failed` — Jest suite failure summary
+- `Expected:.*Received:` — Jest assertion mismatch
+
+**E2E assertion (test logic failure):**
+- `AssertionError:` — Assertion failure in test
+- `expect\(.*\)\.(to|not)` — Playwright/Jest expect failure
+- `Timed out.*waiting for selector` — Playwright selector timeout
+- `Error: locator\.click` — Playwright interaction failure
+- `cy\..*failed because` — Cypress command failure
+
+### Flaky Test (retest once, then flag)
+
+- `context deadline exceeded` (in test step only) — Test-level timeout
+- `SIGTERM|SIGKILL` (in test step only) — Test killed by timeout
+- `net/http: request canceled.*context deadline exceeded` — HTTP request timed out in test
+- `flaky` / `intermittent` (in test name or annotation) — Explicitly marked
+
+### Disambiguation rules
+
+- `context deadline exceeded` in a **setup/provision** step → INFRASTRUCTURE
+- `context deadline exceeded` in a **test** step → FLAKY_TEST
+- `connection refused` during **cluster setup** → INFRASTRUCTURE
+- `connection refused` during **test execution** → FLAKY_TEST (heuristic — could also be a product bug; check if the target service should be running)
+- `rate limit exceeded` or `429 Too Many Requests` → INFRASTRUCTURE, but wait at least 15 minutes before retesting (increase if the log names a specific API with a longer backoff)
+- `ETIMEDOUT` / `ECONNRESET` during **npm install** → CODE (likely needs lockfile fix); during **image pull** → INFRASTRUCTURE
+- When in doubt, look at the **build step name** to determine context

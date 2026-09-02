@@ -1,0 +1,137 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type Updater } from 'use-immer';
+
+import { type V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { InterfaceTypes } from '@kubevirt-utils/components/DiskModal/utils/types';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getDisks, getVolumes } from '@kubevirt-utils/resources/vm';
+import { isWindows } from '@kubevirt-utils/resources/vm/utils/operation-system/operationSystem';
+import { ensurePath, getRandomChars } from '@kubevirt-utils/utils/utils';
+
+import { type EnvironmentKind, type EnvironmentVariable } from '../constants';
+import {
+  areEnvironmentsChanged,
+  getRandomSerial,
+  getVMEnvironmentsVariables,
+  updateVolumeForKind,
+} from '../utils';
+
+type UseEnvironmentsType = {
+  edited: boolean;
+  environments: EnvironmentVariable[];
+  error: Error;
+  onEnvironmentAdd: () => void;
+  onEnvironmentChange: (
+    value: string,
+    serial: string,
+    kind: EnvironmentKind,
+    diskName: string,
+  ) => void;
+  onEnvironmentRemove: (diskName: string) => void;
+  setError: (error: Error | undefined) => void;
+};
+
+const useEnvironments = (
+  vm: V1VirtualMachine,
+  originalVM: V1VirtualMachine,
+  updateVM: Updater<V1VirtualMachine>,
+  onEditChange?: (edited: boolean) => void,
+): UseEnvironmentsType => {
+  const isWindowsVM = useMemo(() => isWindows(originalVM), [originalVM]);
+  const { t } = useKubevirtTranslation();
+  const [error, setError] = useState<Error>();
+  const [edited, setEdited] = useState(false);
+  const originalEnvironments = useMemo(() => getVMEnvironmentsVariables(originalVM), [originalVM]);
+  const environments = useMemo(() => getVMEnvironmentsVariables(vm), [vm]);
+
+  useEffect(() => {
+    const envsEdited = areEnvironmentsChanged(environments, originalEnvironments);
+
+    if (envsEdited !== edited) {
+      setEdited(envsEdited);
+      if (onEditChange) onEditChange(envsEdited);
+    }
+  }, [edited, environments, onEditChange, originalEnvironments]);
+
+  const onEnvironmentAdd = useCallback(() => {
+    updateVM((draftVM: V1VirtualMachine) => {
+      if (!draftVM.spec.template?.spec?.volumes) {
+        ensurePath(draftVM, 'spec.template.spec');
+        draftVM.spec.template.spec.volumes = [];
+      }
+
+      if (!draftVM.spec.template?.spec?.domain?.devices?.disks) {
+        ensurePath(draftVM, 'spec.template.spec.domain.devices');
+        draftVM.spec.template.spec.domain.devices.disks = [];
+      }
+
+      const diskName = `environment-disk-${getRandomChars()}`;
+      getDisks(draftVM).push({
+        disk: {
+          bus: isWindowsVM ? InterfaceTypes.SATA : InterfaceTypes.VIRTIO,
+        },
+        name: diskName,
+        serial: getRandomSerial().toUpperCase(),
+      });
+      getVolumes(draftVM).push({
+        name: diskName,
+      });
+    });
+  }, [updateVM, isWindowsVM]);
+
+  const onEnvironmentChange = (
+    diskName: string,
+    name: string,
+    serial: string,
+    kind: EnvironmentKind,
+  ): void => {
+    if (environments.some((env) => env.name === name)) {
+      return setError(new Error(t('Resource already selected')));
+    }
+
+    if (error) {
+      setError(null);
+    }
+
+    updateVM((draftVM: V1VirtualMachine) => {
+      const volumes = getVolumes(draftVM);
+      const envVolumeIndex = volumes?.findIndex((volume) => volume.name === diskName) ?? -1;
+      const envDisk = getDisks(draftVM)?.find((disk) => disk.name === diskName);
+
+      if (!envDisk || envVolumeIndex < 0) setError(undefined);
+
+      envDisk.serial = serial;
+
+      const newEnvVolume = updateVolumeForKind(volumes[envVolumeIndex], name, kind);
+
+      if (newEnvVolume) volumes.splice(envVolumeIndex, 1, newEnvVolume);
+    });
+  };
+
+  const onEnvironmentRemove = useCallback(
+    (diskName: string) => {
+      updateVM((draftVM) => {
+        draftVM.spec.template.spec.volumes = (getVolumes(draftVM) ?? []).filter(
+          (volume) => volume.name !== diskName,
+        );
+
+        draftVM.spec.template.spec.domain.devices.disks = (getDisks(draftVM) ?? []).filter(
+          (disk) => disk.name !== diskName,
+        );
+      });
+    },
+    [updateVM],
+  );
+
+  return {
+    edited,
+    environments,
+    error,
+    onEnvironmentAdd,
+    onEnvironmentChange,
+    onEnvironmentRemove,
+    setError,
+  };
+};
+
+export default useEnvironments;

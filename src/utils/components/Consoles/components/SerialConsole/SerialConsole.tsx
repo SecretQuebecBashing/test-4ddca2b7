@@ -1,0 +1,151 @@
+import React, {
+  type Dispatch,
+  type FC,
+  memo,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+} from 'react';
+
+import { ClipboardAddon } from '@xterm/addon-clipboard';
+import { FitAddon } from '@xterm/addon-fit';
+import { type IDisposable, Terminal } from '@xterm/xterm';
+
+import { INSECURE, SECURE } from '../../utils/constants';
+import { isConnectionEncrypted, readFromClipboard } from '../../utils/utils';
+import { type PasteParams } from '../AccessConsoles/utils/accessConsoles';
+import { ConsoleState, SERIAL_CONSOLE_TYPE, WS_PROTOCOL, WSS } from '../utils/ConsoleConsts';
+import { type ConsoleComponentState } from '../utils/types';
+import { addSocketListener, BlobOnlyAttachAddon } from './BlobOnlyAttachAddon';
+import { addResizeObserver, createURL, removeResizeObserver } from './utils/serialConsole';
+
+import '@xterm/xterm/css/xterm.css';
+
+type SerialConsoleConnectorProps = {
+  basePath: string;
+  setState: Dispatch<SetStateAction<ConsoleComponentState>>;
+};
+
+const SerialConsole: FC<SerialConsoleConnectorProps> = ({ basePath, setState }) => {
+  const xtermRef = useRef<Terminal>(null);
+  const terminalRef = useRef(null);
+  const resizeObserverRef = useRef<ResizeObserver>(null);
+  const setSerialState = useCallback(
+    (producer: (state: ConsoleComponentState) => Partial<ConsoleComponentState>) =>
+      setState((oldState) =>
+        oldState.type === SERIAL_CONSOLE_TYPE ? { ...oldState, ...producer(oldState) } : oldState,
+      ),
+    [setState],
+  );
+
+  const disconnect = useCallback(() => {
+    removeResizeObserver(resizeObserverRef.current);
+    resizeObserverRef.current = null;
+    if (!xtermRef.current) {
+      return;
+    }
+    const temp = xtermRef.current;
+    xtermRef.current = null;
+    temp.dispose();
+  }, []);
+
+  const connect = useCallback(() => {
+    setSerialState(() => ({
+      state: ConsoleState.Connecting,
+    }));
+    const websocketOptions = {
+      host: `${isConnectionEncrypted() ? WSS : WS_PROTOCOL}://${window.location.hostname}:${
+        window.location.port || (isConnectionEncrypted() ? SECURE : INSECURE)
+      }`,
+      jsonParse: false,
+      path: `${basePath}/console`,
+      reconnect: false,
+      subprotocols: ['plain.kubevirt.io'],
+    };
+
+    const url = createURL(websocketOptions.host, websocketOptions.path);
+
+    const fitAddon = new FitAddon();
+
+    const wsConn = new WebSocket(url, websocketOptions.subprotocols);
+    const disposables: IDisposable[] = [
+      addSocketListener(wsConn, 'open', () => {
+        setSerialState(() => ({
+          state: ConsoleState.Connected,
+        }));
+        terminal.open(terminalRef.current);
+        terminal.focus();
+        removeResizeObserver(resizeObserverRef.current);
+        resizeObserverRef.current = addResizeObserver(
+          terminalRef.current,
+          fitAddon.fit.bind(fitAddon),
+        );
+      }),
+      addSocketListener(wsConn, 'close', () => {
+        disconnect();
+      }),
+      addSocketListener(wsConn, 'error', () => {
+        disconnect();
+      }),
+    ];
+    const terminal = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'underline',
+      fontFamily: 'monospace',
+      fontSize: 14,
+      screenReaderMode: true,
+    });
+
+    const attachAddon = new BlobOnlyAttachAddon(wsConn, { bidirectional: true });
+    const clipboardAddon = new ClipboardAddon();
+    terminal.loadAddon(attachAddon);
+    terminal.loadAddon(clipboardAddon);
+    terminal.loadAddon(fitAddon);
+    // cleanup addon
+    terminal.loadAddon({
+      activate: () => {},
+      dispose: () => {
+        for (const disposable of disposables) disposable.dispose();
+        setSerialState(() => ({
+          // paste action is not bound to terminal object and can be used with next terminal
+          state: ConsoleState.Disconnected,
+        }));
+      },
+    });
+
+    xtermRef.current = terminal;
+  }, [basePath, setSerialState, disconnect]);
+
+  useEffect(() => {
+    if (!xtermRef.current) {
+      connect();
+      setSerialState(() => ({
+        actions: {
+          connect,
+          disconnect,
+          sendPaste: async (params?: PasteParams): Promise<void> => {
+            const { shouldFocusOnConsole = true } = params ?? {};
+            const text = await readFromClipboard();
+            if (typeof text === 'string') {
+              xtermRef.current?.paste(text);
+              if (shouldFocusOnConsole) {
+                xtermRef.current?.focus();
+              }
+            }
+          },
+        },
+      }));
+    }
+
+    return (): void => disconnect();
+  }, [disconnect, connect, setSerialState]);
+
+  return (
+    <>
+      <div className="console-container" ref={terminalRef} role="list" />
+    </>
+  );
+};
+
+export default memo(SerialConsole);

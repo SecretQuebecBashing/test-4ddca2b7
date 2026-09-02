@@ -1,0 +1,86 @@
+import React, { type FC, useEffect, useMemo, useState } from 'react';
+import produce from 'immer';
+import { getEvictionStrategy } from 'src/views/templates/utils/selectors';
+
+import {
+  EVICTION_STRATEGIES,
+  EVICTION_STRATEGY_DEFAULT,
+} from '@kubevirt-utils/components/EvictionStrategy/constants';
+import FormGroupHelperText from '@kubevirt-utils/components/FormGroupHelperText/FormGroupHelperText';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import useHyperConvergeConfiguration from '@kubevirt-utils/hooks/useHyperConvergeConfiguration';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getTemplateVirtualMachineObject, type Template } from '@kubevirt-utils/resources/template';
+import { Checkbox, FormGroup } from '@patternfly/react-core';
+
+type EvictionStrategyModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (updatedVM: Template) => Promise<Template | void>;
+  template: Template;
+};
+
+const EvictionStrategyModal: FC<EvictionStrategyModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  template,
+}) => {
+  const { t } = useKubevirtTranslation();
+  const templateEvictionStrategy = getEvictionStrategy(template);
+
+  const [isChecked, setIsChecked] = useState<boolean>(
+    templateEvictionStrategy === EVICTION_STRATEGIES.LiveMigrate,
+  );
+
+  const [hyperConverge, hyperLoaded, hyperLoadingError] = useHyperConvergeConfiguration();
+
+  useEffect(() => {
+    if (templateEvictionStrategy || hyperLoadingError || !hyperLoaded) return;
+
+    if (hyperConverge?.spec?.evictionStrategy) {
+      setIsChecked(hyperConverge?.spec?.evictionStrategy === EVICTION_STRATEGIES.LiveMigrate);
+      return;
+    }
+
+    setIsChecked(EVICTION_STRATEGY_DEFAULT === EVICTION_STRATEGIES.LiveMigrate);
+  }, [hyperConverge, hyperLoaded, hyperLoadingError, templateEvictionStrategy]);
+
+  const updatedTemplate = useMemo(() => {
+    return produce<Template>(template, (templateDraft: Template) => {
+      const draftVM = getTemplateVirtualMachineObject(templateDraft);
+      if (isChecked) {
+        draftVM.spec.template.spec.evictionStrategy = EVICTION_STRATEGIES.LiveMigrate;
+      } else {
+        draftVM.spec.template.spec.evictionStrategy = EVICTION_STRATEGIES.None;
+      }
+    });
+  }, [isChecked, template]);
+
+  return (
+    <TabModal
+      headerText={t('Eviction strategy')}
+      isOpen={isOpen}
+      obj={updatedTemplate}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      shouldWrapInForm
+    >
+      <FormGroup fieldId="eviction-strategy" isInline>
+        <Checkbox
+          id="eviction-strategy"
+          isChecked={isChecked}
+          label={t('LiveMigrate')}
+          onChange={(_event, val) => setIsChecked(val)}
+        />
+        <FormGroupHelperText>
+          {t(
+            'EvictionStrategy can be set to "LiveMigrate" if the VirtualMachineInstance should be migrated instead of shut-off in case of a node drain.',
+          )}
+        </FormGroupHelperText>
+      </FormGroup>
+    </TabModal>
+  );
+};
+
+export default EvictionStrategyModal;

@@ -1,0 +1,85 @@
+/* eslint-disable */
+import React, { Dispatch, FC, SetStateAction, useCallback, useEffect } from 'react';
+
+import { getSCSelectOptions } from '@kubevirt-utils/components/DiskModal/components/StorageClassAndPreallocation/utils/helpers';
+import InlineFilterSelect from '@kubevirt-utils/components/FilterSelect/InlineFilterSelect';
+import Loading from '@kubevirt-utils/components/Loading/Loading';
+import useDefaultStorageClass from '@kubevirt-utils/hooks/useDefaultStorage/useDefaultStorageClass';
+import { getPreferredDefaultStorageClass } from '@kubevirt-utils/hooks/useDefaultStorage/utils';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import useReadyStorageClasses from '@kubevirt-utils/hooks/useReadyStorageClasses/useReadyStorageClasses';
+import { StorageClassModel } from '@kubevirt-utils/models';
+import { getName } from '@kubevirt-utils/resources/shared';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { FormGroup } from '@patternfly/react-core';
+
+type StorageClassSelectProps = {
+  checkSC?: (selectedSC: string) => boolean;
+  cluster?: string;
+  isDisabled?: boolean;
+  setShowSCAlert: Dispatch<SetStateAction<boolean>>;
+  setStorageClassName: (value: string) => void;
+  setStorageClassProvisioner?: Dispatch<SetStateAction<string>>;
+  storageClass: string;
+};
+
+const StorageClassSelect: FC<StorageClassSelectProps> = ({
+  checkSC,
+  cluster,
+  isDisabled,
+  setShowSCAlert,
+  setStorageClassName,
+  setStorageClassProvisioner,
+  storageClass,
+}) => {
+  const { t } = useKubevirtTranslation();
+
+  const [defaultStorageClasses, defaultSCLoaded] = useDefaultStorageClass(cluster);
+  const [{ readyStorageClasses }, readySCLoaded] = useReadyStorageClasses(cluster);
+
+  const loaded = defaultSCLoaded && readySCLoaded;
+  const defaultSC = getPreferredDefaultStorageClass(defaultStorageClasses);
+
+  const onSelect = useCallback(
+    (selection: string) => {
+      setShowSCAlert(checkSC ? checkSC(selection) : false);
+      setStorageClassName(selection);
+      setStorageClassProvisioner?.(
+        (readyStorageClasses || []).find((sc) => getName(sc) === selection)?.provisioner,
+      );
+    },
+     
+    [readyStorageClasses],
+  );
+
+  useEffect(() => {
+    if (!storageClass && loaded && !isEmpty(defaultSC)) {
+      setStorageClassName(getName(defaultSC));
+      setStorageClassProvisioner?.(defaultSC?.provisioner);
+    }
+  }, [defaultSC, setStorageClassName, setStorageClassProvisioner, storageClass, loaded]);
+
+  return (
+    <FormGroup fieldId="storage-class" label={t('StorageClass')}>
+      <div data-test="storage-class-select">
+        {loaded ? (
+          <InlineFilterSelect
+            toggleProps={{
+              isDisabled,
+              isFullWidth: true,
+            }}
+            options={getSCSelectOptions(readyStorageClasses)}
+            placeholder={t('Select {{label}}', { label: StorageClassModel.label })}
+            popperProps={{ enableFlip: true }}
+            selected={storageClass || getName(defaultSC)}
+            setSelected={onSelect}
+          />
+        ) : (
+          <Loading />
+        )}
+      </div>
+    </FormGroup>
+  );
+};
+
+export default StorageClassSelect;

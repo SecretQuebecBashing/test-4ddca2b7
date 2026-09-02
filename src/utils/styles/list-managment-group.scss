@@ -1,0 +1,26 @@
+.list-managment-group {
+  display: flex;
+  justify-content: space-between;
+  padding-block: var(--pf-t--global--spacer--md);
+
+  &__pagination {
+    align-self: center;
+    flex-grow: 1;
+  }
+
+  > .list-managment-group__flex {
+    align-items: center;
+  }
+
+  .pf-v6-c-toolbar {
+    padding-block: 0;
+  }
+
+  .pf-v6-c-toolbar__expandable-content {
+    width: fit-content;
+  }
+}
+
+.list-header-spacer {
+  margin-top: 43px;
+}

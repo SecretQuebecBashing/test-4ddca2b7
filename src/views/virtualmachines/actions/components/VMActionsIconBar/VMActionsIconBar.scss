@@ -1,0 +1,15 @@
+.vm-actions-icon-bar {
+  &__button {
+    padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
+  }
+
+  &__icon {
+    font-size: var(--pf-t--global--font--size--xl);
+    vertical-align: bottom;
+  }
+
+  &__icon--unpause {
+    transform: rotate(90deg);
+    padding-right: 0;
+  }
+}

@@ -1,0 +1,108 @@
+/* eslint-disable perfectionist/sort-classes */
+import { t } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import DropdownEnum from '@kubevirt-utils/utils/dropdownEnum';
+export const ONE_SECOND = 1000;
+export const ONE_MINUTE = 60 * ONE_SECOND;
+export const FIVE_MIN = 5 * ONE_MINUTE;
+export const FIFTEEN_MIN = 3 * FIVE_MIN;
+export const THIRTY_MIN = 2 * FIFTEEN_MIN;
+export const ONE_HOUR = 60 * ONE_MINUTE;
+export const THREE_HOURS = 3 * ONE_HOUR;
+export const FOUR_HOURS = 4 * ONE_HOUR;
+export const SIX_HOURS = 2 * THREE_HOURS;
+export const TWELVE_HOURS = 2 * SIX_HOURS;
+export const ONE_DAY = 2 * TWELVE_HOURS;
+export const TWO_DAYS = 2 * ONE_DAY;
+export const ONE_WEEK = 7 * ONE_DAY;
+
+const mapperDuration = {
+  '12h': TWELVE_HOURS,
+  '15m': FIFTEEN_MIN,
+  '1d': ONE_DAY,
+  '1h': ONE_HOUR,
+  '1w': ONE_WEEK,
+  '2d': TWO_DAYS,
+  '30m': THIRTY_MIN,
+  '3h': THREE_HOURS,
+  '4h': FOUR_HOURS,
+  '5m': FIVE_MIN,
+  '6h': SIX_HOURS,
+};
+
+const getDurationMilliseconds = (duration: string): number =>
+  mapperDuration?.[duration] ?? mapperDuration?.['5m'];
+
+class DurationOption extends DropdownEnum<string> {
+  static readonly FIFTEEN_MIN = new DurationOption('15m', {
+    dropdownLabel: t('Last 15 minutes'),
+  });
+
+  static readonly FIVE_MIN = new DurationOption('5m', {
+    dropdownLabel: t('Last 5 minutes'),
+  });
+
+  static readonly ONE_DAY = new DurationOption('1d', {
+    dropdownLabel: t('Last 1 day'),
+  });
+
+  static readonly ONE_HOUR = new DurationOption('1h', {
+    dropdownLabel: t('Last 1 hour'),
+  });
+
+  static readonly ONE_WEEK = new DurationOption('1w', {
+    dropdownLabel: t('Last 1 week'),
+  });
+
+  static readonly SIX_HOURS = new DurationOption('6h', {
+    dropdownLabel: t('Last 6 hours'),
+  });
+
+  static readonly THIRTY_MIN = new DurationOption('30m', {
+    dropdownLabel: t('Last 30 minutes'),
+  });
+
+  static readonly THREE_HOURS = new DurationOption('3h', {
+    dropdownLabel: t('Last 3 hours'),
+  });
+
+  static readonly TWELVE_HOURS = new DurationOption('12h', {
+    dropdownLabel: t('Last 12 hours'),
+  });
+
+  static readonly TWO_DAYS = new DurationOption('2d', {
+    dropdownLabel: t('Last 2 days'),
+  });
+
+  private static readonly all = Object.freeze(
+    DurationOption.getAllClassEnumProperties<DurationOption>(),
+  );
+  private static readonly dropdownLabelMapper = DurationOption.all.reduce(
+    (accumulator, durationOption: DurationOption) => ({
+      ...accumulator,
+      [durationOption.dropdownLabel]: durationOption,
+    }),
+    {},
+  );
+  static readonly fromDropdownLabel = (dropdownLabel: string): DurationOption | undefined =>
+    DurationOption.dropdownLabelMapper[dropdownLabel];
+
+  static readonly fromString = (source: string): DurationOption | undefined =>
+    DurationOption.stringMapper[source];
+  static readonly getAll = (): readonly DurationOption[] => DurationOption.all;
+  static readonly getMilliseconds = (duration: string): number | undefined =>
+    DurationOption.stringMapper?.[duration]?.millisecondsTime;
+  private static readonly stringMapper = DurationOption.all.reduce(
+    (accumulator, durationOption: DurationOption) => ({
+      ...accumulator,
+      [durationOption.value]: durationOption,
+    }),
+    {},
+  );
+  protected readonly millisecondsTime: number;
+  constructor(value: string, { dropdownLabel }: { dropdownLabel: string }) {
+    super(value, { dropdownLabel });
+    this.millisecondsTime = getDurationMilliseconds(value);
+  }
+}
+
+export default DurationOption;

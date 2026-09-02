@@ -1,0 +1,146 @@
+import { useMemo } from 'react';
+
+import { V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { ActionDropdownItemType } from '@kubevirt-utils/components/ActionsDropdown/constants';
+import { useModal } from '@kubevirt-utils/components/ModalProvider/ModalProvider';
+import { CONFIRM_VM_ACTIONS, TREE_VIEW_FOLDERS } from '@kubevirt-utils/hooks/useFeatures/constants';
+import { useFeatures } from '@kubevirt-utils/hooks/useFeatures/useFeatures';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getName, getNamespace } from '@kubevirt-utils/resources/shared';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import useProviderByClusterName from '@multicluster/components/CrossClusterMigration/hooks/useProviderByClusterName';
+import { getCluster } from '@multicluster/helpers/selectors';
+import useClusterParam from '@multicluster/hooks/useClusterParam';
+import { useHubClusterName } from '@stolostron/multicluster-sdk';
+import { isPaused, isRunning, isStopped } from '@virtualmachines/utils';
+import { getVMIMFromMapper, VMIMMapper } from '@virtualmachines/utils/mappers';
+
+import { createBulkVirtualMachineActionFactory } from '../BulkVirtualMachineActionFactory';
+
+import useClusterStorageMigrationAPI from './storageMigrationApi/useClusterStorageMigrationAPI';
+import { BULK_ACTIONS_ID } from './constants';
+import useIsMTVInstalled from './useIsMTVInstalled';
+import useVirtualMachineActionsProvider from './useVirtualMachineActionsProvider';
+import { someVMIsMigrating } from './utils';
+
+type UseMultipleVirtualMachineActions = (
+  vms: V1VirtualMachine[],
+  vmimMapper: VMIMMapper,
+  isTreeViewMenu?: boolean,
+) => ActionDropdownItemType[];
+
+const useMultipleVirtualMachineActions: UseMultipleVirtualMachineActions = (
+  vms,
+  vmimMapper,
+  isTreeViewMenu = false,
+) => {
+  const { t } = useKubevirtTranslation();
+  const { createModal } = useModal();
+  const { featureEnabled: confirmVMActionsEnabled } = useFeatures(CONFIRM_VM_ACTIONS);
+  const { featureEnabled: treeViewFoldersEnabled } = useFeatures(TREE_VIEW_FOLDERS);
+  const [mtvInstalled] = useIsMTVInstalled();
+  const [hubClusterName] = useHubClusterName();
+  const clusterParam = useClusterParam();
+  const effectiveCluster = getCluster(vms?.[0]) ?? clusterParam ?? undefined;
+
+  const [provider, providerLoaded] = useProviderByClusterName(effectiveCluster ?? hubClusterName);
+
+  const storageMigAPI = useClusterStorageMigrationAPI(effectiveCluster);
+
+  const singleVM = vms?.[0];
+  const [singleVMActions] = useVirtualMachineActionsProvider(
+    singleVM,
+    getVMIMFromMapper(
+      vmimMapper,
+      getName(singleVM),
+      getNamespace(singleVM),
+      effectiveCluster ?? getCluster(singleVM),
+    ),
+  );
+
+  const BulkVirtualMachineActionFactory = useMemo(
+    () => createBulkVirtualMachineActionFactory(t),
+    [t],
+  );
+
+  return useMemo(() => {
+    if (vms.length === 1 && !isTreeViewMenu) {
+      return singleVMActions;
+    }
+
+    const namespaces = new Set(vms?.map((vm) => getNamespace(vm)));
+    const clusters = new Set(vms?.map((vm) => getCluster(vm)));
+
+    const migrateCompute = BulkVirtualMachineActionFactory.migrateCompute(vms, createModal);
+    const migrateStorage = BulkVirtualMachineActionFactory.migrateStorage(
+      vms,
+      createModal,
+      storageMigAPI,
+    );
+
+    const migrationActions =
+      clusters.size === 1 ? [migrateCompute, migrateStorage] : [migrateCompute];
+
+    if (clusters.size === 1 && namespaces.size === 1 && mtvInstalled) {
+      migrationActions.unshift(
+        BulkVirtualMachineActionFactory.crossClusterMigration(
+          vms,
+          createModal,
+          providerLoaded && isEmpty(provider),
+        ),
+      );
+    }
+
+    const hasMigratingVM = someVMIsMigrating(vms, vmimMapper);
+
+    const actions: ActionDropdownItemType[] = [
+      BulkVirtualMachineActionFactory.controlActions(
+        [
+          !vms.every(isRunning) && BulkVirtualMachineActionFactory.start(vms),
+          !vms.every(isStopped) &&
+            BulkVirtualMachineActionFactory.stop(vms, createModal, confirmVMActionsEnabled),
+          !vms.every(isPaused) &&
+            BulkVirtualMachineActionFactory.pause(vms, createModal, confirmVMActionsEnabled),
+          BulkVirtualMachineActionFactory.unpause(vms),
+          BulkVirtualMachineActionFactory.restart(vms, createModal, confirmVMActionsEnabled),
+          BulkVirtualMachineActionFactory.reset(vms, createModal, confirmVMActionsEnabled),
+        ].filter(Boolean),
+      ),
+      BulkVirtualMachineActionFactory.snapshot(vms, createModal),
+      ...(migrationActions.length > 0
+        ? [
+            {
+              cta: null,
+              disabled: hasMigratingVM,
+              id: BULK_ACTIONS_ID.MIGRATION_MENU,
+              label: t('Migration'),
+              options: migrationActions,
+            },
+          ]
+        : []),
+      ...(treeViewFoldersEnabled
+        ? [BulkVirtualMachineActionFactory.moveToFolder(vms, createModal)]
+        : []),
+      BulkVirtualMachineActionFactory.editLabels(vms, createModal, isTreeViewMenu),
+      BulkVirtualMachineActionFactory.delete(vms, createModal, isTreeViewMenu),
+    ];
+
+    return actions;
+  }, [
+    confirmVMActionsEnabled,
+    createModal,
+    isTreeViewMenu,
+    mtvInstalled,
+    provider,
+    providerLoaded,
+    storageMigAPI,
+    t,
+    treeViewFoldersEnabled,
+    vms,
+    vmimMapper,
+    singleVMActions,
+    BulkVirtualMachineActionFactory,
+  ]);
+};
+
+export default useMultipleVirtualMachineActions;

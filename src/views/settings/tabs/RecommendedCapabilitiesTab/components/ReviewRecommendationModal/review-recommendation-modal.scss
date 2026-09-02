@@ -1,0 +1,26 @@
+.review-recommendation-modal {
+  &__separator {
+    border: none;
+    border-top: 1px solid var(--pf-t--global--border--color--default);
+    margin: 0 var(--pf-t--global--spacer--lg) var(--pf-t--global--spacer--md);
+  }
+
+  &__editor {
+    display: flex;
+    flex-direction: column;
+    height: 350px;
+    margin-top: var(--pf-t--global--spacer--md);
+
+    > * {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+
+      > * {
+        flex: 1;
+        overflow-y: auto;
+      }
+    }
+  }
+}

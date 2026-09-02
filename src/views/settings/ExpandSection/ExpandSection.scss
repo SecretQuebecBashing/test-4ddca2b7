@@ -1,0 +1,26 @@
+.expand-section__disabled {
+  button {
+    cursor: unset;
+    background-color: inherit;
+  }
+
+  .pf-v6-c-expandable-section__toggle-icon {
+    color: var(--pf-t--global--icon--color--disabled);
+  }
+
+  .pf-v6-c-button__text {
+    color: var(--pf-t--global--text--color--disabled);
+  }
+}
+
+.ExpandSection {
+  .pf-v6-c-expandable-section__content {
+    .pf-v6-c-expandable-section__toggle {
+      margin-left: -0.5rem;
+    }
+
+    .pf-v6-c-expandable-section__content {
+      padding-left: calc(var(--pf-v6-c-expandable-section__content--PaddingInlineStart) - 0.5rem);
+    }
+  }
+}

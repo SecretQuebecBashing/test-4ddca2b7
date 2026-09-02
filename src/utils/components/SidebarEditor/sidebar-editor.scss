@@ -1,0 +1,28 @@
+.sidebar-editor {
+  height: 100%;
+
+  .pf-v6-c-sidebar__panel,
+  .pf-v6-c-sidebar__main {
+    height: 100%;
+  }
+
+  .pf-v6-c-sidebar__main {
+    align-items: stretch;
+  }
+
+  .pf-v6-c-sidebar__content {
+    overflow-y: auto;
+  }
+
+  .pf-v6-c-sidebar__panel {
+    padding: var(--pf-v6-global-spacer-sm);
+  }
+
+  .ocs-yaml-editor__root {
+    height: 100%;
+  }
+}
+
+.regular-font-weight {
+  font-weight: normal;
+}

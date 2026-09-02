@@ -1,0 +1,111 @@
+import React, { FC, useMemo } from 'react';
+import produce from 'immer';
+import { getNodeSelector } from 'src/views/templates/utils/selectors';
+
+import { modelToGroupVersionKind, NodeModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import { IoK8sApiCoreV1Node } from '@kubevirt-ui-ext/kubevirt-api/kubernetes';
+import LabelsList from '@kubevirt-utils/components/NodeSelectorModal/components/LabelList';
+import LabelRow from '@kubevirt-utils/components/NodeSelectorModal/components/LabelRow';
+import NodeCheckerAlert from '@kubevirt-utils/components/NodeSelectorModal/components/NodeCheckerAlert';
+import { useIDEntities } from '@kubevirt-utils/components/NodeSelectorModal/hooks/useIDEntities';
+import { useNodeLabelQualifier } from '@kubevirt-utils/components/NodeSelectorModal/hooks/useNodeLabelQualifier';
+import {
+  isEqualObject,
+  nodeSelectorToIDLabels,
+} from '@kubevirt-utils/components/NodeSelectorModal/utils/helpers';
+import { IDLabel } from '@kubevirt-utils/components/NodeSelectorModal/utils/types';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getTemplateVirtualMachineObject, Template } from '@kubevirt-utils/resources/template';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { getCluster } from '@multicluster/helpers/selectors';
+import useK8sWatchData from '@multicluster/hooks/useK8sWatchData';
+
+type NodeSelectorModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (updatedTemplate: Template) => Promise<Template | void>;
+  template: Template;
+};
+
+const NodeSelectorModal: FC<NodeSelectorModalProps> = ({ isOpen, onClose, onSubmit, template }) => {
+  const { t } = useKubevirtTranslation();
+  const {
+    entities: selectorLabels,
+    onEntityAdd: onLabelAdd,
+    onEntityChange: onLabelChange,
+    onEntityDelete: onLabelDelete,
+  } = useIDEntities<IDLabel>(nodeSelectorToIDLabels(getNodeSelector(template)));
+
+  const [nodes, nodesLoaded] = useK8sWatchData<IoK8sApiCoreV1Node[]>({
+    cluster: getCluster(template),
+    groupVersionKind: modelToGroupVersionKind(NodeModel),
+    isList: true,
+  });
+
+  const qualifiedNodes = useNodeLabelQualifier(nodes, nodesLoaded, selectorLabels);
+
+  const onSelectorLabelAdd = () => onLabelAdd({ id: null, key: '', value: '' });
+
+  const updatedTemplate = useMemo(
+    () =>
+      produce<Template>(template, (templateDraft: Template) => {
+        const draftVM = getTemplateVirtualMachineObject(templateDraft);
+        if (!getNodeSelector(templateDraft)) {
+          draftVM.spec.template.spec.nodeSelector = {};
+        }
+
+        const k8sSelector: { [key: string]: string } = selectorLabels.reduce(
+          (acc, { key, value }) => {
+            acc[key] = value;
+            return acc;
+          },
+          {},
+        );
+
+        if (!isEqualObject(getNodeSelector(templateDraft), k8sSelector)) {
+          draftVM.spec.template.spec.nodeSelector = k8sSelector;
+        }
+      }),
+    [template, selectorLabels],
+  );
+
+  return (
+    <TabModal
+      headerText={t('Node selector')}
+      isOpen={isOpen}
+      obj={updatedTemplate}
+      onClose={onClose}
+      onSubmit={onSubmit}
+      shouldWrapInForm
+    >
+      <LabelsList
+        isEmpty={selectorLabels?.length === 0}
+        model={!isEmpty(nodes) && NodeModel}
+        onLabelAdd={onSelectorLabelAdd}
+      >
+        {selectorLabels.length > 0 && (
+          <>
+            {selectorLabels.map((label, index) => (
+              <LabelRow
+                key={label.id}
+                label={label}
+                onChange={onLabelChange}
+                onDelete={onLabelDelete}
+                withKeyValueTitle={index === 0}
+              />
+            ))}
+          </>
+        )}
+      </LabelsList>
+      {!isEmpty(nodes) && (
+        <NodeCheckerAlert
+          nodesLoaded={nodesLoaded}
+          qualifiedNodes={selectorLabels?.length === 0 ? nodes : qualifiedNodes}
+        />
+      )}
+    </TabModal>
+  );
+};
+
+export default NodeSelectorModal;

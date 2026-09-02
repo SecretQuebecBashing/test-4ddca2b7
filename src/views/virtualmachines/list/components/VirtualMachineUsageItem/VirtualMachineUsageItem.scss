@@ -1,0 +1,13 @@
+.vm-usage-item {
+  &__metric {
+    font-weight: var(--pf-t--global--font--weight--300);
+  }
+
+  &__current {
+    font-size: var(--pf-t--global--font--size--body--lg);
+  }
+
+  &__total {
+    color: var(--pf-t--global--text--color--subtle);
+  }
+}

@@ -1,0 +1,53 @@
+import React from 'react';
+import { Link } from 'react-router';
+
+import { VirtualMachineModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  type AdapterDataType,
+  getGroupVersionKindForResource,
+  type NetworkAdapterType,
+  type PodsAdapterDataType,
+  ResourceIcon,
+} from '@openshift-console/dynamic-plugin-sdk';
+import { type GraphElement } from '@patternfly/react-topology';
+import { isVMType } from '@topology/utils/utils';
+
+import { resourcePathFromModel } from '../../cdi-upload-provider/utils/resourceUtils';
+import usePodsAdapterForVM from '../hooks/usePodsAdapterForVM';
+import { getResource } from './topology-utils';
+
+export const getVMSidePanelPodsAdapter = (
+  element: GraphElement,
+): AdapterDataType<PodsAdapterDataType> => {
+  if (!isVMType(element.getType())) return null;
+  const resource = getResource(element);
+  return { provider: usePodsAdapterForVM, resource };
+};
+
+export const getVMSidePanelNetworkAdapter = (element: GraphElement): NetworkAdapterType => {
+  if (!isVMType(element.getType())) return undefined;
+  const resource = getResource(element);
+  return { resource };
+};
+
+export const getVMSideBarResourceLink = (element: GraphElement): React.ReactNode => {
+  if (!isVMType(element.getType())) return null;
+  const name = element.getLabel();
+  const resource = getResource(element);
+  return (
+    <>
+      <ResourceIcon
+        className="co-m-resource-icon--lg"
+        groupVersionKind={getGroupVersionKindForResource(resource)}
+      />
+      {name && (
+        <Link
+          className="co-resource-item__resource-name"
+          to={resourcePathFromModel(VirtualMachineModel, name, resource.metadata.namespace)}
+        >
+          {name}
+        </Link>
+      )}
+    </>
+  );
+};

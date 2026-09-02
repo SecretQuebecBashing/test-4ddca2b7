@@ -1,0 +1,59 @@
+import React, { type FC, useState } from 'react';
+
+import DurationOption from '@kubevirt-utils/components/DurationOption/DurationOption';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { Select, SelectList, SelectOption } from '@patternfly/react-core';
+
+import SelectToggle from '../toggles/SelectToggle';
+
+export type DurationDropdownProps = {
+  selectedDuration: string;
+  selectHandler: (value: string) => void;
+};
+
+const DurationDropdown: FC<DurationDropdownProps> = ({ selectedDuration, selectHandler }) => {
+  const { t } = useKubevirtTranslation();
+
+  const [isOpen, setIsOpen] = useState(false);
+
+  const onSelect = (_event: unknown, durationOption: string): void => {
+    selectHandler(durationOption);
+    setIsOpen(false);
+  };
+
+  const onToggle = (): void => setIsOpen((prevIsOpen) => !prevIsOpen);
+
+  const selected = t(DurationOption.fromString(selectedDuration)?.getDropdownLabel());
+  return (
+    <Select
+      isOpen={isOpen}
+      isScrollable
+      onOpenChange={setIsOpen}
+      onSelect={onSelect}
+      selected={selected}
+      toggle={SelectToggle({ isExpanded: isOpen, onClick: onToggle, selected })}
+    >
+      <SelectList>
+        {[...DurationOption.getAll()]
+          .sort((a, b) =>
+            DurationOption.getMilliseconds(a.getValue()) <
+            DurationOption.getMilliseconds(b.getValue())
+              ? -1
+              : 1,
+          )
+          .map((durationOption) => {
+            const dropdownLabel = durationOption?.getDropdownLabel() ?? '';
+            const durationValue = durationOption?.getValue() ?? '';
+
+            return (
+              <SelectOption data-test={durationValue} key={durationValue} value={dropdownLabel}>
+                {t(dropdownLabel)}
+              </SelectOption>
+            );
+          })}
+      </SelectList>
+    </Select>
+  );
+};
+
+export default DurationDropdown;

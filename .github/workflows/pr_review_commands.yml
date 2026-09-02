@@ -1,0 +1,63 @@
+name: PR Review Commands
+
+# A native GitHub Approve/Request-changes review toggles lgtm/approved the
+# same way the /lgtm command does. Always honors the review's state,
+# regardless of any command text in its body. See ci-scripts/README.md.
+#
+# Split into two workflows because GitHub withholds repository/organization
+# secrets (and gives only a read-only GITHUB_TOKEN) from pull_request_review
+# when the PR head is a fork -- confirmed live, and true for essentially
+# every PR in this repo, since contributors (including maintainers) push
+# from personal forks rather than branches on this repo directly. This half
+# never touches secrets or the API; it only captures the review's
+# already-trustworthy event-payload data (GitHub-computed, not something a
+# fork PR author can fake) and hands it to pr_review_commands_sync.yml via
+# an artifact. That workflow_run-triggered workflow always runs with full
+# base-repo secrets regardless of what triggered the upstream run -- the one
+# event type immune to the fork restriction -- and does the actual sync.
+on:
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ github.event.review.id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  capture-review:
+    name: Capture Review Event
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
+      - name: Setup scripts
+        uses: ./.github/actions/setup-gh-scripts
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Write review data
+        working-directory: .github/scripts
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_USER: ${{ github.event.review.user.login }}
+          REVIEW_STATE: ${{ github.event.review.state == 'approved' && 'APPROVED' || 'CHANGES_REQUESTED' }}
+          REVIEW_AUTHOR: ${{ github.event.review.user.login }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: npx tsx src/commands/write-review-data.ts
+
+      - name: Upload review data
+        if: hashFiles('.github/scripts/review-data.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-data
+          path: .github/scripts/review-data.json
+          retention-days: 1

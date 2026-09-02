@@ -1,0 +1,25 @@
+import React, { type FC } from 'react';
+
+import DescriptionItem from '@kubevirt-utils/components/DescriptionItem/DescriptionItem';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getCluster } from '@multicluster/helpers/selectors';
+
+type DescriptionItemClusterProps = {
+  resource: K8sResourceCommon;
+};
+
+const DescriptionItemCluster: FC<DescriptionItemClusterProps> = ({ resource }) => {
+  const { t } = useKubevirtTranslation();
+
+  const cluster = getCluster(resource);
+
+  if (!cluster) {
+    return null;
+  }
+
+  return (
+    <DescriptionItem descriptionData={cluster} descriptionHeader={t('Cluster')} isPopover={false} />
+  );
+};
+
+export default DescriptionItemCluster;

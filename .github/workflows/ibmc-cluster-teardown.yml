@@ -1,0 +1,211 @@
+name: IBM Cloud Hot Cluster Teardown
+
+on:
+  workflow_dispatch:
+    inputs:
+      infrastructure_type:
+        description: 'Infrastructure type used to create the cluster'
+        required: true
+        default: 'vpc'
+        type: choice
+        options:
+          - vpc
+          - classic
+          - ipi
+      cluster_name:
+        description: 'Cluster name to tear down'
+        required: true
+        default: 'kubevirt-plugin-ci'
+        type: string
+      zone:
+        description: "Zone the cluster's VPC resources live in (vpc/ipi only; used to target the right region for cleanup-vpc-resources.sh)"
+        required: false
+        default: 'us-south-1'
+        type: string
+      ipi_setup_run_id:
+        description: 'GitHub Actions run ID from the IPI setup (to download install state artifact)'
+        required: false
+        default: ''
+        type: string
+      force:
+        description: 'Force teardown even if setup/e2e workflows are running'
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      infrastructure_type:
+        description: 'Infrastructure type'
+        required: false
+        default: 'classic'
+        type: string
+      cluster_name:
+        description: 'Cluster name to tear down'
+        required: false
+        default: 'kubevirt-plugin-ci'
+        type: string
+      zone:
+        description: "Zone the cluster's VPC resources live in (vpc/ipi only)"
+        required: false
+        default: 'us-south-1'
+        type: string
+      ipi_setup_run_id:
+        description: 'GitHub Actions run ID from the IPI setup'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      IC_KEY:
+        required: true
+      ARC_GITHUB_APP_ID:
+        required: false
+      ARC_GITHUB_APP_PRIVATE_KEY:
+        required: false
+      OPENSHIFT_PULL_SECRET:
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CLUSTER_NAME: ${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}
+  IBM_REGION: eu-de
+  IBM_RESOURCE_GROUP: cnv-ui
+
+jobs:
+  teardown:
+    name: Tear Down Hot Cluster
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: hot-cluster-teardown-${{ inputs.cluster_name || 'kubevirt-plugin-ci' }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install infra-script dependencies
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npm ci
+
+      - name: Validate cluster_name format
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/validate-cluster-name.ts
+
+      - name: Setup scripts
+        if: inputs.force != true
+        uses: ./.github/actions/setup-gh-scripts
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+
+      - name: Check for active setup/e2e workflows
+        if: inputs.force != true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        working-directory: .github/scripts
+        run: npx tsx src/infra/teardown-safety-check.ts
+
+      - name: Setup IBM Cloud CLI
+        uses: IBM/actions-ibmcloud-cli@v2
+        with:
+          api_key: ${{ secrets.IC_KEY }}
+          region: ${{ env.IBM_REGION }}
+          group: ${{ env.IBM_RESOURCE_GROUP }}
+          plugins: kubernetes-service, vpc-infrastructure
+
+      # ──────────────────────────────────────────────────────────────────────
+      # ROKS teardown (classic + vpc)
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Check ROKS cluster exists
+        if: inputs.infrastructure_type != 'ipi'
+        id: check_cluster
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/check-roks-exists-teardown.ts
+
+      - name: Deregister ARC runners
+        if: inputs.infrastructure_type != 'ipi' && steps.check_cluster.outputs.exists == 'true'
+        continue-on-error: true
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/deregister-arc-runners.ts
+
+      - name: Delete ROKS cluster
+        if: inputs.infrastructure_type != 'ipi' && steps.check_cluster.outputs.exists == 'true'
+        working-directory: ci-scripts/hot-cluster/ts
+        run: npx tsx src/scripts/delete-roks-cluster.ts
+
+      - name: Clean up VPC resources
+        if: inputs.infrastructure_type == 'vpc' && steps.check_cluster.outputs.exists == 'true'
+        continue-on-error: true
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          ZONE: ${{ inputs.zone }}
+        run: bash ./ci-scripts/hot-cluster/cleanup-vpc-resources.sh
+
+      # ──────────────────────────────────────────────────────────────────────
+      # IPI teardown
+      # ──────────────────────────────────────────────────────────────────────
+      # The next two steps are best-effort: the install-state artifact may
+      # be missing or expired, but the name-prefix sweep below always runs
+      # regardless.
+      - name: Download IPI install state
+        if: inputs.infrastructure_type == 'ipi'
+        continue-on-error: true
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SETUP_RUN_ID: ${{ inputs.ipi_setup_run_id }}
+        run: npx tsx src/scripts/download-ipi-install-state.ts
+
+      - name: Destroy IPI cluster
+        if: inputs.infrastructure_type == 'ipi'
+        continue-on-error: true
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          INSTALL_DIR: ${{ runner.temp }}/ipi-install
+        run: npx tsx src/scripts/destroy-ipi-cluster.ts
+
+      # Guaranteed backstop: sweeps by name prefix regardless of whether the
+      # steps above found install state or ran openshift-install destroy.
+      - name: Sweep any remaining VPC resources
+        if: inputs.infrastructure_type == 'ipi'
+        continue-on-error: true
+        env:
+          IC_API_KEY: ${{ secrets.IC_KEY }}
+          ZONE: ${{ inputs.zone }}
+        run: bash ./ci-scripts/hot-cluster/cleanup-vpc-resources.sh
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Common cleanup
+      # ──────────────────────────────────────────────────────────────────────
+      # Reuses the existing kubevirt-plugin-arc GitHub App (already scoped to
+      # exactly `administration: write`, the permission runner
+      # registration/deregistration needs).
+      - name: Generate ARC app token for ghost-runner cleanup
+        id: arc-app-token
+        if: always()
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.ARC_GITHUB_APP_ID }}
+          private-key: ${{ secrets.ARC_GITHUB_APP_PRIVATE_KEY }}
+          permission-administration: write
+
+      - name: Clean up ghost runners
+        if: always()
+        continue-on-error: true
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          GH_TOKEN: ${{ steps.arc-app-token.outputs.token }}
+        run: npx tsx src/scripts/cleanup-ghost-runners-bulk.ts
+
+      - name: Teardown summary
+        if: always()
+        working-directory: ci-scripts/hot-cluster/ts
+        env:
+          INFRASTRUCTURE_TYPE: ${{ inputs.infrastructure_type || 'classic' }}
+          CLUSTER_EXISTS: ${{ steps.check_cluster.outputs.exists || 'N/A (IPI)' }}
+        run: npx tsx src/scripts/write-teardown-summary.ts

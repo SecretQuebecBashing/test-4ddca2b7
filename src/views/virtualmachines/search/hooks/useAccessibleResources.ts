@@ -1,0 +1,118 @@
+import { useMemo } from 'react';
+
+import { useIsAdmin } from '@kubevirt-utils/hooks/useIsAdmin';
+import { type KubevirtDataPodFilters } from '@kubevirt-utils/hooks/useKubevirtDataPod/types';
+import useKubevirtWatchResource from '@kubevirt-utils/hooks/useKubevirtWatchResource/useKubevirtWatchResource';
+import useProjects from '@kubevirt-utils/hooks/useProjects';
+import { isSystemNamespace } from '@kubevirt-utils/resources/namespace/helper';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import useClusterParam from '@multicluster/hooks/useClusterParam';
+import useIsACMPage from '@multicluster/useIsACMPage';
+import {
+  type K8sGroupVersionKind,
+  type Selector,
+  useK8sWatchResources,
+} from '@openshift-console/dynamic-plugin-sdk';
+import { type AdvancedSearchFilter } from '@stolostron/multicluster-sdk';
+import { getSearchQueries } from '@virtualmachines/search/utils';
+import { OBJECTS_FETCHING_LIMIT } from '@virtualmachines/utils/constants';
+
+type UseAccessibleResourcesArgs = {
+  clusters?: string[];
+  fieldSelector?: string;
+  filterOptions?: KubevirtDataPodFilters;
+  groupVersionKind: K8sGroupVersionKind;
+  namespace?: string;
+  onlyUserProjects?: boolean;
+  searchQueries?: AdvancedSearchFilter;
+  selector?: Selector;
+  watchNamespaces?: string[];
+};
+
+type UseAccessibleResourcesReturn<T> = {
+  loaded: boolean;
+  loadError?: Error;
+  resources: T[];
+};
+
+export const useAccessibleResources = <T>({
+  clusters,
+  fieldSelector,
+  filterOptions,
+  groupVersionKind,
+  namespace,
+  onlyUserProjects,
+  searchQueries,
+  selector,
+  watchNamespaces,
+}: UseAccessibleResourcesArgs): UseAccessibleResourcesReturn<T> => {
+  const isAdmin = useIsAdmin();
+  const isACMPage = useIsACMPage();
+  const cluster = useClusterParam();
+  const [projectNames, projectNamesLoaded, projectNamesError] = useProjects();
+
+  const clusterToWatch = useMemo(() => {
+    if (clusters?.length === 1) return clusters[0];
+    return clusters ? undefined : cluster;
+  }, [clusters, cluster]);
+
+  const namespacesToWatch = useMemo(() => {
+    if (watchNamespaces) return watchNamespaces;
+    if (!onlyUserProjects || !projectNames) return projectNames;
+    return projectNames.filter((ns) => !isSystemNamespace(ns));
+  }, [onlyUserProjects, projectNames, watchNamespaces]);
+
+  const loadPerNamespace = !isACMPage && projectNamesLoaded && !isAdmin;
+
+  const shouldFetchClusterWide = isAdmin || isACMPage;
+  const [allResources, allResourcesLoaded, allResourcesLoadError] = useKubevirtWatchResource<T[]>(
+    shouldFetchClusterWide
+      ? {
+          cluster: clusterToWatch,
+          fieldSelector,
+          groupVersionKind,
+          isList: true,
+          limit: OBJECTS_FETCHING_LIMIT,
+          namespace,
+          namespaced: Boolean(namespace),
+          selector,
+        }
+      : null,
+    filterOptions,
+    getSearchQueries(searchQueries, clusters),
+  );
+
+  const allowedResources = useK8sWatchResources<{ [key: string]: T[] }>(
+    Object.fromEntries(
+      loadPerNamespace
+        ? (namespacesToWatch || []).map((ns) => [
+            ns,
+            {
+              fieldSelector,
+              groupVersionKind,
+              isList: true,
+              namespace: ns,
+              selector,
+            },
+          ])
+        : [],
+    ),
+  );
+
+  const resources = useMemo(() => {
+    const vms = loadPerNamespace
+      ? Object.values(allowedResources).flatMap((resource) => resource.data || [])
+      : allResources;
+    return vms || [];
+  }, [allResources, allowedResources, loadPerNamespace]);
+
+  const loaded = shouldFetchClusterWide
+    ? allResourcesLoaded || !!allResourcesLoadError
+    : projectNamesLoaded &&
+      (isEmpty(allowedResources) ||
+        Object.values(allowedResources).some((resource) => resource.loaded || resource.loadError));
+
+  const loadError = shouldFetchClusterWide ? allResourcesLoadError : projectNamesError;
+
+  return { loaded, loadError, resources };
+};

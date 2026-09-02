@@ -1,0 +1,143 @@
+import React, { FC, useEffect, useMemo, useState } from 'react';
+import { NavLink, Route, Routes, useLocation, useParams } from 'react-router';
+import classNames from 'classnames';
+import { VirtualMachineModel } from 'src/views/dashboard-extensions/utils';
+
+import { V1VirtualMachine } from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import { logVMDetailTabViewed } from '@kubevirt-utils/extensions/telemetry/dashboard';
+import { VMDetailTabTelemetry } from '@kubevirt-utils/extensions/telemetry/utils/types';
+import { getName } from '@kubevirt-utils/resources/shared';
+import { isEmpty } from '@kubevirt-utils/utils/utils';
+import { isVMWizardURL } from '@multicluster/urls';
+import { Badge } from '@patternfly/react-core';
+
+import StateHandler from '../StateHandler/StateHandler';
+
+import useDynamicPages from './utils/useDynamicPages';
+import { NavPageKubevirt, trimLastHistoryPath } from './utils/utils';
+
+import './HorizontalNavbar.scss';
+
+type HorizontalNavbarProps = {
+  basePath?: string;
+  error?: any;
+  instanceTypeExpandedSpec?: V1VirtualMachine;
+  loaded: boolean;
+  pages: NavPageKubevirt[];
+  routesClassName?: string;
+  vm?: V1VirtualMachine;
+};
+
+const HorizontalNavbar: FC<HorizontalNavbarProps> = ({
+  basePath = '',
+  error,
+  instanceTypeExpandedSpec,
+  loaded,
+  pages,
+  routesClassName,
+  vm,
+}) => {
+  const location = useLocation();
+  const params = useParams();
+
+  const vmCreated = !isVMWizardURL(location.pathname);
+
+  const dynamicPluginPages = useDynamicPages(VirtualMachineModel, vm, vmCreated);
+
+  const allPages = useMemo(() => [...pages, ...dynamicPluginPages], [pages, dynamicPluginPages]);
+
+  const paths = useMemo(() => allPages.map((page) => page.href), [allPages]);
+
+  useEffect(() => {
+    const defaultPage = allPages.find(({ href }) => isEmpty(href));
+
+    const initialActiveTab =
+      allPages.find(
+        ({ href }) =>
+          !isEmpty(href) && location?.pathname?.replace(basePath, '').includes('/' + href),
+      ) || defaultPage;
+
+    setActiveItem(initialActiveTab?.name?.toLowerCase());
+  }, [allPages, location?.pathname, basePath]);
+
+  const [activeItem, setActiveItem] = useState<number | string>();
+
+  const RoutesComponents = allPages.map((page) => {
+    const Component = page.component;
+    return (
+      <Route
+        element={
+          <StateHandler error={error} hasData={!!vm} loaded={loaded} withBullseye>
+            <Component
+              instanceTypeExpandedSpec={instanceTypeExpandedSpec}
+              obj={vm}
+              params={params}
+            />
+          </StateHandler>
+        }
+        key={page.href}
+        path={page.href}
+      />
+    );
+  });
+
+  return (
+    <>
+      <nav className="pf-v6-c-tabs pf-m-page-insets pf-v6-u-flex-shrink-0">
+        <ul className="pf-v6-c-tabs__list">
+          {allPages.map((item) => {
+            if (item?.isHidden) return null;
+
+            return (
+              <li
+                className={classNames('pf-v6-c-tabs__item', {
+                  'pf-m-current': activeItem === item.name.toLowerCase(),
+                })}
+                key={item.name}
+              >
+                <NavLink
+                  onClick={() => {
+                    setActiveItem(item.name.toLowerCase());
+                    logVMDetailTabViewed(
+                      item.name.toLowerCase() as VMDetailTabTelemetry,
+                      vm ? getName(vm) : undefined,
+                    );
+                  }}
+                  to={
+                    basePath +
+                    trimLastHistoryPath(location.pathname.replace(basePath, ''), paths) +
+                    item.href
+                  }
+                  className="pf-v6-c-tabs__link"
+                  data-test={`horizontal-link-${item.name}`}
+                  id={`horizontal-pageHeader-${item.name}`}
+                >
+                  {item.name}
+                  {item.badges?.map(
+                    (badge) =>
+                      !isEmpty(badge.count) && (
+                        <Badge
+                          className={`horizontal-navbar__badge horizontal-navbar__badge--${badge.color}`}
+                          key={badge.color}
+                        >
+                          {badge.count}
+                        </Badge>
+                      ),
+                  )}
+                </NavLink>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+      <div
+        className={classNames('horizontal-navbar__routes', routesClassName)}
+        id="horizontal-navbar-routes"
+      >
+        <Routes>{RoutesComponents}</Routes>
+      </div>
+    </>
+  );
+};
+
+export default HorizontalNavbar;

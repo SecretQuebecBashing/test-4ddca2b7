@@ -1,0 +1,141 @@
+import React, { type FC, useMemo, useState } from 'react';
+
+import { VirtualMachineSnapshotModel } from '@kubevirt-ui-ext/kubevirt-api/console';
+import {
+  type V1beta1VirtualMachineSnapshot,
+  type V1VirtualMachine,
+} from '@kubevirt-ui-ext/kubevirt-api/kubevirt';
+import {
+  generateSnapshot,
+  generateSnapshotName,
+} from '@kubevirt-utils/components/SnapshotModal/utils/utils';
+import TabModal from '@kubevirt-utils/components/TabModal/TabModal';
+import {
+  TELEMETRY_STATUS,
+  TELEMETRY_UNKNOWN_ERROR_MESSAGE,
+  TELEMETRY_VM_ACTION,
+} from '@kubevirt-utils/extensions/telemetry/utils/property-constants';
+import { logVMActionPerformed } from '@kubevirt-utils/extensions/telemetry/vm-actions';
+import { logVMSnapshotCreated } from '@kubevirt-utils/extensions/telemetry/vm-storage';
+import { useKubevirtTranslation } from '@kubevirt-utils/hooks/useKubevirtTranslation';
+import { getVolumeSnapshotStatuses } from '@kubevirt-utils/resources/vm';
+import { isDNS1123Label, validateDNS1123Label } from '@kubevirt-utils/utils/validation';
+import { getCluster } from '@multicluster/helpers/selectors';
+import { kubevirtK8sCreate } from '@multicluster/k8sRequests';
+import {
+  FormGroup,
+  List,
+  ListItem,
+  TextArea,
+  TextInput,
+  ValidatedOptions,
+} from '@patternfly/react-core';
+import { deadlineUnits } from '@virtualmachines/details/tabs/snapshots/utils/consts';
+import { getVolumeSnapshotStatusesPartition } from '@virtualmachines/details/tabs/snapshots/utils/helpers';
+import { printableVMStatus } from '@virtualmachines/utils';
+
+import FormGroupHelperText from '../FormGroupHelperText/FormGroupHelperText';
+import SupportedVolumesAlert from './alerts/SupportedVolumesAlert';
+import UnsupportedVolumesAlert from './alerts/UnsupportedVolumesAlert';
+import SnapshotDeadlineFormField from './SnapshotFormFields/SnapshotDeadlineFormField';
+import SnapshotSupportedVolumeList from './SnapshotFormFields/SnapshotSupportedVolumeList';
+
+import './SnapshotModal.scss';
+
+type SnapshotModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  vm: V1VirtualMachine;
+};
+
+const SnapshotModal: FC<SnapshotModalProps> = ({ isOpen, onClose, vm }) => {
+  const { t } = useKubevirtTranslation();
+  const [snapshotName, setSnapshotName] = useState<string>(() => generateSnapshotName(vm));
+  const isSnapshotNameValid = isDNS1123Label(snapshotName);
+  const [description, setDescription] = useState<string>(undefined);
+  const [deadline, setDeadline] = useState<string>(undefined);
+  const [deadlineUnit, setDeadlineUnit] = useState<deadlineUnits>(deadlineUnits.Seconds);
+
+  const volumeSnapshotStatuses = getVolumeSnapshotStatuses(vm);
+  const { supportedVolumes, unsupportedVolumes } =
+    getVolumeSnapshotStatusesPartition(volumeSnapshotStatuses);
+
+  const [isSubmitDisabled, setIsSubmitDisabled] = useState<boolean>(false);
+
+  const resultSnapshot = useMemo(
+    () => generateSnapshot(vm, snapshotName, description, deadline, deadlineUnit),
+    [deadline, deadlineUnit, description, snapshotName, vm],
+  );
+
+  return (
+    <TabModal<V1beta1VirtualMachineSnapshot>
+      headerText={t('Take snapshot')}
+      isDisabled={isSubmitDisabled || !isSnapshotNameValid}
+      isOpen={isOpen}
+      obj={resultSnapshot}
+      onClose={onClose}
+      onSubmit={async (obj) => {
+        try {
+          const result = await kubevirtK8sCreate<V1beta1VirtualMachineSnapshot>({
+            cluster: getCluster(vm),
+            data: obj,
+            model: VirtualMachineSnapshotModel,
+          });
+          logVMActionPerformed(TELEMETRY_VM_ACTION.SNAPSHOT, vm);
+          logVMSnapshotCreated(TELEMETRY_STATUS.SUCCESS);
+          return result;
+        } catch (error) {
+          logVMSnapshotCreated(TELEMETRY_STATUS.FAILURE, {
+            errorMessage: error instanceof Error ? error.message : TELEMETRY_UNKNOWN_ERROR_MESSAGE,
+          });
+          throw error;
+        }
+      }}
+      shouldWrapInForm
+    >
+      <SupportedVolumesAlert
+        isVMRunning={vm?.status?.printableStatus === printableVMStatus.Running}
+      />
+      <FormGroup fieldId="name" isRequired label={t('Name')}>
+        <TextInput
+          id="name"
+          onChange={(_event, newName: string) => setSnapshotName(newName)}
+          type="text"
+          validated={isSnapshotNameValid ? ValidatedOptions.default : ValidatedOptions.error}
+          value={snapshotName}
+        />
+        {!isSnapshotNameValid && (
+          <FormGroupHelperText validated={ValidatedOptions.error}>
+            {validateDNS1123Label(t, snapshotName)}
+          </FormGroupHelperText>
+        )}
+      </FormGroup>
+      <FormGroup fieldId="description" label={t('Description')}>
+        <TextArea
+          className="snapshot-modal__description-textarea"
+          id="description"
+          onChange={(_event, newDescription: string) => setDescription(newDescription)}
+          resizeOrientation="vertical"
+          value={description}
+        />
+      </FormGroup>
+      <SnapshotDeadlineFormField
+        deadline={deadline}
+        deadlineUnit={deadlineUnit}
+        setDeadline={setDeadline}
+        setDeadlineUnit={setDeadlineUnit}
+        setIsError={setIsSubmitDisabled}
+      />
+      <SnapshotSupportedVolumeList volumesCount={supportedVolumes?.length ?? 0}>
+        <List>
+          {supportedVolumes?.map((vol) => (
+            <ListItem key={vol.name}>{vol.name}</ListItem>
+          ))}
+        </List>
+      </SnapshotSupportedVolumeList>
+      <UnsupportedVolumesAlert unsupportedVolumes={unsupportedVolumes} />
+    </TabModal>
+  );
+};
+
+export default SnapshotModal;
