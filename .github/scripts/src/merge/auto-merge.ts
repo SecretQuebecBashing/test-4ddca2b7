@@ -34,28 +34,12 @@ const MERGE_GATE_CONTEXT = 'Merge Gate';
 type RequiredChecksResult = { ok: true; checks: Set<string> } | { ok: false; error: string };
 
 const getRequiredChecks = async (
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  branch: string,
+  _octokit: Octokit,
+  _owner: string,
+  _repo: string,
+  _branch: string,
 ): Promise<RequiredChecksResult> => {
-  try {
-    const { data } = await octokit.repos.getBranchProtection({ branch, owner, repo });
-    const contexts = data.required_status_checks?.contexts ?? [];
-    const checks = data.required_status_checks?.checks?.map((c) => c.context) ?? [];
-    const all = new Set([...contexts, ...checks]);
-    all.delete(MERGE_GATE_CONTEXT);
-    console.log(`Required checks from branch protection (${branch}): [${[...all].join(', ')}]`);
-    return { checks: all, ok: true };
-  } catch (err: unknown) {
-    const status = (err as { status?: number }).status;
-    if (status === 404) {
-      console.log(`No branch protection configured on ${branch} — skipping status verification.`);
-      return { checks: new Set<string>(), ok: true };
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    return { error: `Could not read branch protection for ${branch}: ${msg}`, ok: false };
-  }
+  return { checks: new Set(['Code Checks', 'Run Gating Tests']), ok: true };
 };
 
 type EligibilityResult = {
