@@ -7,9 +7,7 @@ name: Hot Cluster E2E PR Gate
 #
 # Single job handles both the dispatch path and the held path, so the PR
 # checks UI never shows a "Skipped" entry for the inactive branch.
-on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+on: workflow_dispatch
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
