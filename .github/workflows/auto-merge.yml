@@ -11,7 +11,7 @@ on:
     types: [opened, labeled, unlabeled, reopened, synchronize]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
   statuses: write
   checks: read
@@ -52,7 +52,7 @@ jobs:
       - name: Evaluate eligibility and merge if ready
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          BOT_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         working-directory: .github/scripts
